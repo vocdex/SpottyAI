@@ -1,93 +1,85 @@
 # Project Mobile Robotics
 
-This repository provides the codebase for the Mobile Robotics project of the Chair of Control Engineering at FAU.
-The intention of the codebase is to provide examples that allow a quick head start into the project.
+This repository provides the codebase and an initial structure for the Mobile Robotics project of the Chair of 
+Automatic Control at FAU.
+The intention of the repo is to provide you with all the required tools and examples that allow a 
+quick head start into the project.
 
 ## Getting started
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+We assume that you have some experience with the command line, python and git.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+If not, 
+- Command line using Ubuntu: https://ubuntu.com/tutorials/command-line-for-beginners#1-overview
+- Command line using Windows: https://www.cs.princeton.edu/courses/archive/spr05/cos126/cmd-prompt.html
+- a full documentation for **Git** is provided by https://git-scm.com/book/en/v2.
+- The W3School provide a very good tutorial for python https://www.w3schools.com/python/
 
-## Add your files
+We use the Spot Python SDKs. Therefore, we highly recommend to have a look at https://dev.bostondynamics.com/readme for 
+the conceptual documentation, the installation process and the Python client library.
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+The Spot SDK Repo has a lot of examples. It is added as a submodule. 
+To load the submodules run the following commands in the command line of the root directory of the repo:
 
+``` 
+git submodules init 
+git submodule update
 ```
-cd existing_repo
-git remote add origin https://gitlab.cs.fau.de/lrt/project-mobile-robotics.git
-git branch -M main
-git push -uf origin main
-```
 
-## Integrate with your tools
+### Install Python and setting up a virtual environment (venv)
 
-- [ ] [Set up project integrations](https://gitlab.cs.fau.de/lrt/project-mobile-robotics/-/settings/integrations)
+We follow the same process as described in BostonDynamics Quickstart https://dev.bostondynamics.com/docs/python/quickstart#system-setup.
 
-## Collaborate with your team
+Proceed until *'Install Spot Python packages'*. All proceeding steps are either covered by this **README** or will be demonstrated during the first session of the project
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+### Package requirements
 
-## Test and Deploy
+Our code requires external packages. The most important ones are the spot python packages to communicate with the robot.
+You could manually install all the required packages, but this might be inefficient.  
+To ensure that you and your team is always using the same packages, a `requirements.txt` file can be very useful.
 
-Use the built-in continuous integration in GitLab.
+To keep our package management clean we only want to make the packages of the venv a requirement.
+Ensure that you have activated the virtual environment (as proposed by BostonDynamics)
+indicated by the name of the venv in brackets in the command line.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+I have already created a requirements.txt file which includes the most basic packages to get you started. 
 
-***
+To install them, run the following command in the root directory of this repo:
 
-# Editing this README
+`pip install -r requirements.txt` 
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+This installs all the required packages. During the project you might need additional packages to perform your tasks. 
+To update the requirements.txt file, run the following command in the root directory of your repo:
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+`pip freeze --local > requirements.txt`.
 
-## Name
-Choose a self-explaining name for your project.
+The local flag ensures that only the requirements of the venv are used. Do so after you have installed new packages and 
+want to commit your code.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+To ensure that your team is using the latest package requirements run 
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+`pip install -r requirements.txt` 
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+after you have pulled your code 
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### Integrated Development Environment (IDE) 
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Before we start to develop code for our robot, we will set up the IDE for an easier development.
+We recommend PyCharm. Feel free to use any other IDE, but we cannot provide any support for these.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+#### Setup PyCharm (Community)
+after installing PyCharm Community (https://www.jetbrains.com/pycharm/download) we need to set up a new project.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Define the location of the project (use this repo)
+select a python interpreter (use the previously configured virtual environment e.g. `…/spot_venv/bin/python3`)
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+You can change the interpreter at any time or have a look at the installed packages.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+If you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you can see all installed packages in the venv. 
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+If you have selected the correct python interpreter you should be able to see the 'bosdyn' packages.
+Additionally, the Terminal in Pycharm should indicate that you are using the venv by showing the name of the venv in brackets.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Hello Spot
 
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+... the first session of the project will cover the basics like communicating with Spot.
