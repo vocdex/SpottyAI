@@ -1,3 +1,0 @@
-[submodule "spot-sdk"]
-	path = spot-sdk
-	url = https://github.com/boston-dynamics/spot-sdk.git
