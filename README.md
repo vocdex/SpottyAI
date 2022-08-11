@@ -22,7 +22,7 @@ The Spot SDK Repo has a lot of examples. It is added as a submodule.
 To load the submodules run the following commands in the command line of the root directory of the repo:
 
 ``` 
-git submodules init 
+git submodule init 
 git submodule update
 ```
 
