@@ -7,6 +7,7 @@ Additionally, we try to use the code from the groups of former semesters as a st
 We want to continue this. So if you create code this semester, comment it well.
 Then it can be built upon for the groups to come.
 
+- [estop](estop/README.md) - this is a mandatory estop to run any other code
 - [start up](start_up/README.md)
 - [auto walk](auto_walk/README.md)
 - [process local map](process_local_map/README.md)
