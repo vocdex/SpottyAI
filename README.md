@@ -83,3 +83,25 @@ Additionally, the Terminal in Pycharm should indicate that you are using the ven
 ## Hello Spot
 
 ... the first session of the project will cover the basics like communicating with Spot.
+
+#### remember to launch your code in a venv
+activate venv: `source ~/.../spot_env/bin/activate`
+
+deactivate venv: `deactivate`
+
+#### WIFI:
+SSID: `spot-BD-10400003`
+password: `q3ezxuygl9l0` - l not 1!
+
+#### Connecting
+Username: `user` 
+Password: `c037gcf6n93f`
+
+for convenience during the examples:
+```
+export BOSDYN_CLIENT_USERNAME=user
+export BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
+```
+#### robot IP address:
+`192.168.80.3`
+
