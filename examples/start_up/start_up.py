@@ -127,15 +127,6 @@ def start_up(config):
 def main(argv):
     """Command line interface."""
     parser = argparse.ArgumentParser()
-    # bosdyn.client.util.add_base_arguments(parser)
-    # parser.add_argument(
-    #     '-s', '--save', action='store_true', help=
-    #     'Save the image captured by Spot to the working directory. To chose the save location, use --save_path instead.'
-    # )
-    # parser.add_argument(
-    #     '--save-path', default=None, nargs='?', help=
-    #     'Save the image captured by Spot to the provided directory. Invalid path saves to working directory.'
-    # )
     options = parser.parse_args(argv)
     try:
         start_up(options)
