@@ -123,7 +123,6 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
     # have no global reference frame. The only thing we can say about waypoints is that they have relative
     # transformations to their neighbors via edges. So the goal is to get the whole graph into a global reference
     # frame centered on some waypoint as the origin.
-    # TODO we always want the last waypoint as our origin reference frame!
 
     # Sort Waypoints by creation time (We want the latest to be the origin)
     latest_creation_time = 0.0
