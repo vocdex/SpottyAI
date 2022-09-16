@@ -65,7 +65,7 @@ def load_map(path):
 
             if len(waypoint.snapshot_id) == 0:
                 continue
-            # Load the snapshot. Note that snapshots contain all of the raw data in a waypoint and may be large.
+            # Load the snapshot. Note that snapshots contain all the raw data in a waypoint and may be large.
             file_name = os.path.join(path, "waypoint_snapshots", waypoint.snapshot_id)
             if not os.path.exists(file_name):
                 continue
@@ -117,11 +117,24 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
 
     """
 
+
+
     # Now, perform a breadth first search of the graph starting from an arbitrary waypoint. Graph nav graphs
     # have no global reference frame. The only thing we can say about waypoints is that they have relative
     # transformations to their neighbors via edges. So the goal is to get the whole graph into a global reference
     # frame centered on some waypoint as the origin.
-    queue = [(current_graph.waypoints[0], np.eye(4))]
+    # TODO we always want the last waypoint as our origin reference frame!
+
+    # Sort Waypoints by creation time (We want the latest to be the origin)
+    latest_creation_time = 0.0
+    rf_idx = 0
+    for idx, wp in enumerate(current_graph.waypoints):
+        creation_time = wp.annotations.creation_time.seconds + wp.annotations.creation_time.seconds * 1e-9
+        latest_creation_time = max(latest_creation_time, creation_time)
+        if creation_time == latest_creation_time:
+            rf_idx = idx
+
+    queue = [(current_graph.waypoints[rf_idx], np.eye(4))]
     visited = {}
     # Get the camera in the ballpark of the right position by centering it on the average position of a waypoint.
     avg_pos = np.array([0.0, 0.0, 0.0])
