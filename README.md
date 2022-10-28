@@ -80,6 +80,8 @@ If you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you 
 If you have selected the correct python interpreter you should be able to see the 'bosdyn' packages.
 Additionally, the Terminal in Pycharm should indicate that you are using the venv by showing the name of the venv in brackets.
 
+Note that in Windows the virtual environment is only active in the `Command Promt`! 
+
 ## Hello Spot
 
 ... the first session of the project will cover the basics like communicating with Spot.
@@ -98,10 +100,15 @@ Username: `user`
 Password: `c037gcf6n93f`
 
 for convenience during the examples:
-```
-export BOSDYN_CLIENT_USERNAME=user
-export BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
-```
+
+    export BOSDYN_CLIENT_USERNAME=user
+    export BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
+
+for windows
+
+    set BOSDYN_CLIENT_USERNAME=user
+    set BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
+
 #### robot IP address:
 `192.168.80.3`
 
