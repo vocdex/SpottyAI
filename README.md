@@ -87,9 +87,19 @@ Note that in Windows the virtual environment is only active in the `Command Prom
 ... the first session of the project will cover the basics like communicating with Spot.
 
 #### remember to launch your code in a venv
-activate venv: `source ~/.../spot_env/bin/activate`
 
-deactivate venv: `deactivate`
+activate venv: 
+    
+    source ~/.../spot_env/bin/activate
+
+deactivate venv: 
+    
+    deactivate
+
+for Windows
+
+    .\spot_env\Scripts\activate
+
 
 #### WIFI:
 SSID: `spot-BD-10400003`
