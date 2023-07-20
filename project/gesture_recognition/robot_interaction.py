@@ -270,3 +270,33 @@ class RobotInteraction:
                 ):
                     print("Arrived at the goal.")
                     return True
+
+    def wiggle(self, wiggles):
+        body_HEIGHT = 0
+
+
+        footprint_R_body = bosdyn.geometry.EulerZXY(
+            yaw=0,
+            roll=0.0,
+            pitch=0,
+        )
+
+        cmd = RobotCommandBuilder.synchro_stand_command(
+            body_height=body_HEIGHT, footprint_R_body=footprint_R_body
+        )
+
+        self.command_client.robot_command(cmd)
+
+        time.sleep(0.5)
+
+        for t in range(0, wiggles*2):
+            footprint_R_body.roll = (-1)**t * 20*np.pi/180
+
+            print(footprint_R_body.roll)
+
+            cmd = RobotCommandBuilder.synchro_stand_command(
+                body_height=body_HEIGHT, footprint_R_body=footprint_R_body
+            )
+
+            self.command_client.robot_command(cmd)
+            time.sleep(0.5)

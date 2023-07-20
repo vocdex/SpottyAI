@@ -1,10 +1,12 @@
+import time
+
 from statemachine import StateMachine, State
 import logging
 
 
-from gesture_recognition.gesture_recognition import GestureRecognition, GestureState
-from gesture_recognition.body_tracking import BodyTracking, HumanLocation
-
+from project.gesture_recognition.gesture_recognition import GestureRecognition, GestureState
+from project.gesture_recognition.body_tracking import BodyTracking, HumanLocation
+from project.gesture_recognition.robot_interaction import RobotInteraction
 
 class GRSM(StateMachine):
     """Gesture recognition state machine"""
@@ -20,6 +22,7 @@ class GRSM(StateMachine):
     lost_human = human_no_gesture.to(no_human)
     recognition = human_no_gesture.to(gesture_recognized)
     processing_gesture_action = gesture_recognized.to(gesture_action)
+    gesture_aborted = gesture_recognized.to(no_human)
     completed_gesture_action = gesture_action.to(no_human)
     #
 
@@ -32,6 +35,7 @@ class GRSM(StateMachine):
             self.config.track_human__allow_new_stand = False
 
         self.gesture_recognition = GestureRecognition()
+        self.robot_interaction = RobotInteraction(robot, motion_client, state_client)
 
         self.body_tracking = BodyTracking(robot, config, motion_client, state_client)
 
@@ -54,10 +58,10 @@ class GRSM(StateMachine):
         logging.info(self.state_msg)
 
     def on_enter_gesture_action(self):
-        self.state_msg = "Performing action according to recognized gesture..."
+        self.state_msg = "Performing action according to recognized {} gesture ...".format(self.get_gesture())
         logging.info(self.state_msg)
 
-    def after_gesture_action_complete(self):
+    def on_exit_gesture_action(self):
         logging.info("Gesture action complete.")
 
     def get_gesture(self) -> str:
@@ -68,8 +72,12 @@ class GRSM(StateMachine):
 
     def get_state_msg(self):
         return self.state_msg
+
     def process_state(self, pose_landmarks):
         if self.current_state == self.no_human:
+            self.gesture_recognition.reset_gesture()
+            self.gesture = self.gesture_recognition.gesture_state
+
             if pose_landmarks:
                 self.detected_human()
                 return
@@ -80,35 +88,41 @@ class GRSM(StateMachine):
                 return
 
         if self.current_state == self.human_no_gesture:
+            self.gesture_recognition.reset_gesture()
+            self.gesture = self.gesture_recognition.gesture_state
+
             if not pose_landmarks:
                 self.lost_human()
                 return
 
-            #  track human -> center him
+            # check if gesture can be recognized
+            if self.gesture_recognition.get_gesture(pose_landmarks) != GestureState.NO_GESTURE:
+                self.recognition()
+                return
+
+            #  if no gesture can be recognized track human -> center him
             if self.config.track_human:
                 self.human_location = self.body_tracking.get_human_location(
                     pose_landmarks
                 )
                 self.body_tracking.center_human(self.config.track_human__allow_new_stand)
-                return
-
-            if (
-                self.gesture_recognition.get_gesture(pose_landmarks, self.gesture)
-                == GestureState.NO_GESTURE
-            ):
-                return
-
-            self.recognition()
-            return
 
         if self.current_state == self.gesture_recognized:
-            # TODO process more complex gestures
+            # initial gesture was recognized -> continue recognition and switch to processing if certain
+            self.gesture = self.gesture_recognition.get_gesture(pose_landmarks)
 
-            self.processing_gesture_action()
+            if self.gesture == GestureState.WAVING:
+                self.processing_gesture_action()
+            
+            if self.gesture == GestureState.NO_GESTURE:
+                self.gesture_aborted()
+
+            # no final gesture was recognized -> continue
             return
 
         if self.current_state == self.gesture_action:
-            # TODO block loop and do action
+
+            self.robot_interaction.wiggle(3)
 
             self.completed_gesture_action()
             return

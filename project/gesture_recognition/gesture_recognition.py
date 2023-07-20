@@ -1,4 +1,7 @@
-from gesture_recognition.pose_points_data import PosePoints
+import logging
+
+from project.gesture_recognition.pose_points_data import PosePoints
+from project.gesture_recognition.waving_recognition import WavingRecognizer
 
 from enum import Enum
 
@@ -15,92 +18,64 @@ class GestureState(Enum):
     HELICOPTER = 7
 
 
+FALSE_DETECTION_THRESHOLD = 30  # iterations
+
+
 class GestureRecognition:
     def __init__(self):
         """
         constructor to create GestureRecognition object
-
-        Args:
-            robot_interaction: object of robot interaction class, that handles the interaction with spot
         """
+        self.gesture_state = GestureState.NO_GESTURE
         # numpy arrays for body marks [x, y, z]
         self.points = PosePoints()
 
-    def get_gesture(self, pose_landmarks, last_state: GestureState) -> GestureState:
+        # recognizers
+        self.waving_recognizer = WavingRecognizer(self.points)
+        self.false_detection = 0
+
+    def get_gesture(self, pose_landmarks) -> GestureState:
         if pose_landmarks:
             # Save pose points (3D) to np.array
             # this is done in function of the dataclass
             self.points.new_data(pose_landmarks)
 
-            # # calculate all vectors and angles needed for winking recognition
-            # if self.state != State.CIRCLE_START and self.state != State.PUSH_UP:
-            #     self.waving.calc_waving_stuff()
-            #     # self.waving.waving_start_debug_print()
+            self.waving_recognizer.calc_waving_stuff()
 
-            # push_up_result = self.push_up.is_push_up()
-            # # transition from no gesture to a gesture
-            # if self.state == State.NO_GESTURE:
-            #     # check for push-up state
-            #     if push_up_result != self.push_up.PushUpResults.NO:
-            #         # self.waving.waving_start_debug_print()
-            #         self.state = State.PUSH_UP
-            #         return "PUSH_UP"
-            #     # if the arm is in the waving position, get to waving start state
-            #     elif self.waving.is_waving_pos(self.state):
-            #         self.state = State.WAVING_START
-            #         return "WAVING_START"
-            #     # elif self.circle.is_circle_position(self.state):
-            #     #     self.state = State.CIRCLE_START
-            #     #     return "CIRCLE_START"
-            #     # elif self.helicopter(self.s, self.e):  # ckeck for starting position
-            #     #     self.state = State.HELICOPTER
-            #     #     self.s = 0  # Idee: Soll helfen, falls helicopter() ungeplant verlassen wurde. IDEE NICHT ÜBERPRÜFT
-            #     #     return "HELICOPTER"
-            #     return "NO_GESTURE"
+            # transition from NO_GESTURE to WAVING_START
+            if self.gesture_state == GestureState.NO_GESTURE:
+                # initial waving recognized
+                if self.waving_recognizer.check_waving():
+                    self.false_detection = 0
+                    self.waving_recognizer.waving_counter = 0
+                    self.gesture_state = GestureState.WAVING_START
+                    return self.gesture_state
 
-            # # transition from PUSH_UP to NO_GESTURE
-            # elif (
-            #     self.state == State.PUSH_UP
-            #     and push_up_result == self.push_up.PushUpResults.NO
-            # ):
-            #     self.state = State.NO_GESTURE
-            #     return "NO_GESTURE"
+            # transition from WAVING_START to WAVING and NO_GESTURE
+            if self.gesture_state == GestureState.WAVING_START:
 
-            # # transition from WAVING_START
-            # elif self.state == State.WAVING_START:
-            #     # to NO_GESTURE
+                # transition to waving
+                if self.waving_recognizer.check_waving() and self.waving_recognizer.avg_hand_rel_speed > 0.2:
+                    # check for waving motion -> when relative speed is high enough for 3 times go to waving state
+                    self.waving_recognizer.waving_counter += 1
+                    if self.waving_recognizer.waving_counter > 3:
+                        self.gesture_state = GestureState.WAVING
+                        return self.gesture_state
 
-            #     if not self.waving.is_waving_pos(self.state):
-            #         # check whether arm is still in waving position
-            #         self.state = State.NO_GESTURE
-            #         self.waving_counter = 0
-            #         return "NO_GESTURE"
+                # initial gesture recognition does not seem to be valid -> go back to NO_GESTURE
+                if self.false_detection > FALSE_DETECTION_THRESHOLD:
+                    self.gesture_state = GestureState.NO_GESTURE
+                    return self.gesture_state
 
-            #     # AND WAVING
-            #     elif self.waving.avg_hand_rel_speed > 0.25:
-            #         # check for waving motion -> when relative speed is high enough for 3 times go to waving state
-            #         self.waving_counter = self.waving_counter + 1
-            #         if self.waving_counter > 3:
-            #             self.waving_counter = 0
-            #             self.state = State.WAVING
-            #             return "WAVING"
+                self.false_detection += 1
+                return GestureState.WAVING_START
 
-            #     return "WAVING_START"
-
-            # # transition from WAVING to NO_GESTURE and WAVING_START and WALK
-            # elif self.state == State.WAVING:
-            #     print(f"Speed: {self.waving.avg_hand_rel_speed}")
-            #     # check whether arm is still in waving position
-            #     if not self.waving.is_waving_pos(self.state):
-            #         self.state = State.NO_GESTURE
-            #         return "NO_GESTURE"
-
-            #     # check for waving motion
-            #     elif self.waving.avg_hand_rel_speed < 0.25:
-            #         self.state = State.WAVING_START
-            #         print(f"Speed: {self.waving.avg_hand_rel_speed}")
-            #         return "WAVING_START"
-
-            #     return "WAVING"
+            # transition from WAVING to NO_GESTURE
+            if self.gesture_state == GestureState.WAVING:
+                self.gesture_state = GestureState.NO_GESTURE
+                return GestureState.NO_GESTURE
 
         return GestureState.NO_GESTURE
+
+    def reset_gesture(self):
+        self.gesture_state = GestureState.NO_GESTURE
