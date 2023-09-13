@@ -1,6 +1,9 @@
 import os
 import subprocess
 import sys
+import logging
+import cv2
+import numpy as np
 
 from abc import ABC, abstractmethod
 import time
@@ -9,10 +12,12 @@ import bosdyn.client.estop
 import bosdyn.client.lease
 import bosdyn.client.util
 
-from bosdyn.client.image import ImageClient
+from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.local_grid import LocalGridClient
 from bosdyn.client.robot_state import RobotStateClient
+
+from bosdyn.client.time_sync import TimedOutError
 
 from bosdyn.client.frame_helpers import (
     get_a_tform_b,
@@ -24,9 +29,29 @@ from bosdyn.client.frame_helpers import (
     ODOM_FRAME_NAME,
 )
 
-
 from .grid_utils import get_terrain_markers
 
+from . import stitch_front_images
+
+VALUE_FOR_Q_KEYSTROKE = 113     # quit
+VALUE_FOR_ESC_KEYSTROKE = 27    # quit
+VALUE_FOR_P_KEYSTROKE = 112     # pause
+
+CAMCAL_mtx = np.array(
+    [[917.87243629, 0.0, 507.66305637], [0.0, 645.85695, 384.91475472], [0.0, 0.0, 1.0]]
+)
+
+CAMCAL_dist = np.array([[0.88962234, -0.72184465, -0.09753065, 0.00564781, 1.28539346]])
+
+CAMCAL_newcameramtx = np.array(
+    [
+        [1.08690259e03, 0.00000000e00, 5.18230710e02],
+        [0.00000000e00, 7.58720581e02, 3.43867982e02],
+        [0.00000000e00, 0.00000000e00, 1.00000000e00],
+    ]
+)
+
+CAMCAL_roi = (90, 63, 882, 613)
 
 def ping_robot(hostname):
     try:
@@ -75,6 +100,8 @@ class SpotRobotWrapper(ABC):
     MIN_BATTERY_LEVEL = 15  # [%]
 
     def __init__(self, config):
+        self._LOGGER = logging.getLogger(__name__)
+
         self.config = config
 
         self.hostname = "192.168.80.3"
@@ -99,6 +126,14 @@ class SpotRobotWrapper(ABC):
 
         # define clients
         self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
+        self.requests = [
+            build_image_request(source, quality_percent=config.jpeg_quality_percent)
+            for source in config.image_sources
+        ]
+
+        self.front_image = None
+        self.image_reset_counter = 0
+
         self.image_source_names = [
             src.name
             for src in self.image_client.list_image_sources()
@@ -137,8 +172,63 @@ class SpotRobotWrapper(ABC):
         # flag if motors are on
         self.motors_on = config.motors_on
 
+    def reset_image_client(self):
+        """Recreate the ImageClient from the robot object."""
+        del self.robot.service_clients_by_name["image"]
+        del self.robot.channels_by_authority["api.spot.robot"]
+        return self.robot.ensure_client("image")
+
     def get_images(self):
-        pass  # TODO
+        try:
+            # try to retrieve the image
+            images_future = self.image_client.get_image_async(self.requests)
+            while not images_future.done():
+                keystroke = cv2.waitKey(10)
+                # print(keystroke)
+                if keystroke == VALUE_FOR_ESC_KEYSTROKE or keystroke == VALUE_FOR_Q_KEYSTROKE:
+                    sys.exit(1)
+                if keystroke == VALUE_FOR_P_KEYSTROKE:
+                    pass
+                    # TODO: find use case to print image
+
+            # if future is available -> retrieve
+            images = images_future.result()
+
+            self.front_image = stitch_front_images.stitch_front_images(images)
+
+            # remove camera distortion
+            self.front_image = cv2.undistort(
+                self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx
+            )
+
+            # TODO: implement for other image sources
+
+        except TimedOutError as time_err:
+            # Attempt to handle bad coms:
+            # Continue the live image stream, try recreating the image client after having an RPC timeout 5 times.
+            if self.image_reset_counter == 5:
+                self._LOGGER.info("Resetting image client after 5+ timeout errors.")
+                self.image_client = self.reset_image_client()
+                self.image_reset_counter = 0
+            else:
+                self.image_reset_counter += 1
+
+        except Exception as err:
+            self._LOGGER.warning(err)
+            raise err
+
+    def show_images(self):
+        if self.front_image is not None:
+            cv2.imshow("Front images", self.front_image)
+        # TODO: implement for other image sources
+
+    def get_point_cloud(self):
+        # TODO
+        pass
+
+    def show_point_cloud(self):
+        # TODO
+        pass
 
     def get_robot_state(self):
         """get robot state - kinematic state and robot state"""
@@ -186,7 +276,7 @@ class SpotRobotWrapper(ABC):
     def self_right(self):
         # stand up
         if not self.config.motors_on:
-            self.robot.logger.error("Yo need to turn on the motors first")
+            self.robot.logger.error("You need to turn on the motors first")
             raise ValueError("config.motors_on is False! -> can not power on robot.")
 
         """Callback that sends self-right cmd"""
@@ -197,7 +287,7 @@ class SpotRobotWrapper(ABC):
     def stand_up(self):
         # stand up
         if not self.config.motors_on:
-            self.robot.logger.error("Yo need to turn on the motors first")
+            self.robot.logger.error("You need to turn on the motors first")
             raise ValueError("config.motors_on is False! -> can not power on robot.")
 
         command = RobotCommandBuilder.stand_command()
@@ -279,5 +369,3 @@ class SpotRobotWrapper(ABC):
         finally:
             # stop robot -> sit down
             fail_safe(self.robot)
-            # If we successfully acquired a lease, return it.
-            # self.lease_client.return_lease(self.lease)
