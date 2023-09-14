@@ -9,12 +9,14 @@ class Robot(SpotRobotWrapper):
 
     def init_stuff(self):
         # TODO: this part will be executed once during start up 
-        self.stand_up()
+        # self.stand_up()
         time.sleep(1)
 
     def loop_stuff(self):
         # TODO: this is part where your code is executed continuously
+        self.get_images()
 
         if self.config.dbg_mode:
             # TODO: if you want to execute stuff only in the debug mode do it here
-            pass
+
+            self.show_images()

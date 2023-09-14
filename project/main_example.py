@@ -21,7 +21,7 @@ def main(argv):
         "--motors_on",
         help="if true, will power on motors",
         type=bool,
-        default=True,
+        default=False,
     )
 
     # image specific attributes
@@ -43,7 +43,14 @@ def main(argv):
         type=int,
         default=100,
     )
-
+    # point cloud specific attributes
+    # FIXME
+    parser.add_argument(
+        "--point_cloud-sources",
+        help="Get point cloud from source(s)",
+        action="append",
+        default=["frontright_fisheye_image", "frontleft_fisheye_image"],
+    )
     # TODO: You can add/change arguments according to your needs
 
     options = parser.parse_args(argv)

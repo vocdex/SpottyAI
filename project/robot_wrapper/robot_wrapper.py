@@ -1,79 +1,56 @@
+import logging
+import math
 import os
 import subprocess
 import sys
-import logging
-import cv2
-import numpy as np
-
-from abc import ABC, abstractmethod
 import time
+from abc import ABC, abstractmethod
+
 import bosdyn.client
 import bosdyn.client.estop
 import bosdyn.client.lease
 import bosdyn.client.util
-
+import bosdyn.geometry
+import cv2
+import numpy as np
+from bosdyn.client.frame_helpers import get_vision_tform_body, get_odom_tform_body, VISION_FRAME_NAME
 from bosdyn.client.image import ImageClient, build_image_request
-from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.local_grid import LocalGridClient
+from bosdyn.client.point_cloud import PointCloudClient, build_pc_request
+from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
-
 from bosdyn.client.time_sync import TimedOutError
 
-from bosdyn.client.frame_helpers import (
-    get_a_tform_b,
-    get_vision_tform_body,
-    get_odom_tform_body,
-    BODY_FRAME_NAME,
-    GRAV_ALIGNED_BODY_FRAME_NAME,
-    VISION_FRAME_NAME,
-    ODOM_FRAME_NAME,
-)
-
+from . import stitch_front_images
 from .grid_utils import get_terrain_markers
 
-from . import stitch_front_images
+VALUE_FOR_Q_KEYSTROKE = 113  # quit
+VALUE_FOR_ESC_KEYSTROKE = 27  # quit
+VALUE_FOR_P_KEYSTROKE = 112  # pause
 
-VALUE_FOR_Q_KEYSTROKE = 113     # quit
-VALUE_FOR_ESC_KEYSTROKE = 27    # quit
-VALUE_FOR_P_KEYSTROKE = 112     # pause
-
-CAMCAL_mtx = np.array(
-    [[917.87243629, 0.0, 507.66305637], [0.0, 645.85695, 384.91475472], [0.0, 0.0, 1.0]]
-)
+CAMCAL_mtx = np.array([[917.87243629, 0.0, 507.66305637], [0.0, 645.85695, 384.91475472], [0.0, 0.0, 1.0]])
 
 CAMCAL_dist = np.array([[0.88962234, -0.72184465, -0.09753065, 0.00564781, 1.28539346]])
 
 CAMCAL_newcameramtx = np.array(
-    [
-        [1.08690259e03, 0.00000000e00, 5.18230710e02],
-        [0.00000000e00, 7.58720581e02, 3.43867982e02],
-        [0.00000000e00, 0.00000000e00, 1.00000000e00],
-    ]
-)
+    [[1.08690259e03, 0.00000000e00, 5.18230710e02], [0.00000000e00, 7.58720581e02, 3.43867982e02],
+     [0.00000000e00, 0.00000000e00, 1.00000000e00], ])
 
 CAMCAL_roi = (90, 63, 882, 613)
+
 
 def ping_robot(hostname):
     try:
         with open(os.devnull, "wb") as devnull:
-            resp = subprocess.check_call(
-                ["ping", "-c", "1", hostname],
-                stdout=devnull,
-                stderr=subprocess.STDOUT,
-            )
+            resp = subprocess.check_call(["ping", "-c", "1", hostname], stdout=devnull, stderr=subprocess.STDOUT, )
             if resp != 0:
                 print(
                     "ERROR: Cannot detect a Spot with IP: {}.\nMake sure Spot is powered on and on the same network".format(
-                        hostname
-                    )
-                )
+                        hostname))
                 sys.exit()
     except:
-        print(
-            "ERROR: Cannot detect a Spot with IP: {}.\nMake sure Spot is powered on and on the same network".format(
-                hostname
-            )
-        )
+        print("ERROR: Cannot detect a Spot with IP: {}.\nMake sure Spot is powered on and on the same network".format(
+            hostname))
         sys.exit()
 
 
@@ -88,6 +65,15 @@ def fail_safe(robot):
         robot.logger.info("Robot safely powered off.")
     except:
         pass
+
+
+def quat_to_euler(quat):
+    """Convert a quaternion to xyz Euler angles."""
+    q = [quat.x, quat.y, quat.z, quat.w]
+    roll = math.atan2(2 * q[3] * q[0] + q[1] * q[2], 1 - 2 * q[0] ** 2 + 2 * q[1] ** 2)
+    pitch = math.atan2(2 * q[1] * q[3] - 2 * q[0] * q[2], 1 - 2 * q[1] ** 2 - 2 * q[2] ** 2)
+    yaw = math.atan2(2 * q[2] * q[3] + 2 * q[0] * q[1], 1 - 2 * q[1] ** 2 - 2 * q[2] ** 2)
+    return bosdyn.geometry.EulerZXY(yaw=yaw, roll=roll, pitch=pitch)
 
 
 class SpotRobotWrapper(ABC):
@@ -125,44 +111,36 @@ class SpotRobotWrapper(ABC):
             self.robot.logger.error("Failed to communicate with robot: %s", err)
 
         # define clients
+
+        # Client to request images from the robot
         self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
-        self.requests = [
-            build_image_request(source, quality_percent=config.jpeg_quality_percent)
-            for source in config.image_sources
-        ]
+        self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
+                               config.image_sources]
 
         self.front_image = None
         self.image_reset_counter = 0
 
-        self.image_source_names = [
-            src.name
-            for src in self.image_client.list_image_sources()
-            if "image" in src.name
-        ]
-        self.depth_image_sources = [
-            src.name
-            for src in self.image_client.list_image_sources()
-            if "depth" in src.name
-        ]
+        self.image_source_names = [src.name for src in self.image_client.list_image_sources() if "image" in src.name]
+        self.depth_image_sources = [src.name for src in self.image_client.list_image_sources() if "depth" in src.name]
 
-        self.state_client = self.robot.ensure_client(
-            RobotStateClient.default_service_name
-        )
+        # Client to request robot state
+        self.state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
 
-        self.motion_client = self.robot.ensure_client(
-            RobotCommandClient.default_service_name
-        )
+        # Client to request robot command
+        self.motion_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
 
         # Client to request local occupancy grid
-        self.grid_client = self.robot.ensure_client(
-            LocalGridClient.default_service_name
-        )
+        self.grid_client = self.robot.ensure_client(LocalGridClient.default_service_name)
         self.local_grid_types = self.grid_client.get_local_grid_types()
 
+        # Client to request local point cloud
+        self.point_cloud_client = self.robot.ensure_client(PointCloudClient.default_service_name)
+        self.point_cloud_requests = [build_pc_request(source) for source in config.point_cloud_sources]
+
+        self.point_cloud = None
+
         # Only one client at a time can operate a robot.
-        self.lease_client = self.robot.ensure_client(
-            bosdyn.client.lease.LeaseClient.default_service_name
-        )
+        self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
 
         # Verify the robot is not estopped and that an external application has registered and holds
         # an estop endpoint.
@@ -181,15 +159,14 @@ class SpotRobotWrapper(ABC):
     def get_images(self):
         try:
             # try to retrieve the image
-            images_future = self.image_client.get_image_async(self.requests)
+            images_future = self.image_client.get_image_async(self.image_requests)
             while not images_future.done():
                 keystroke = cv2.waitKey(10)
                 # print(keystroke)
                 if keystroke == VALUE_FOR_ESC_KEYSTROKE or keystroke == VALUE_FOR_Q_KEYSTROKE:
                     sys.exit(1)
                 if keystroke == VALUE_FOR_P_KEYSTROKE:
-                    pass
-                    # TODO: find use case to print image
+                    pass  # TODO: find use case to print image
 
             # if future is available -> retrieve
             images = images_future.result()
@@ -197,9 +174,7 @@ class SpotRobotWrapper(ABC):
             self.front_image = stitch_front_images.stitch_front_images(images)
 
             # remove camera distortion
-            self.front_image = cv2.undistort(
-                self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx
-            )
+            self.front_image = cv2.undistort(self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx)
 
             # TODO: implement for other image sources
 
@@ -220,30 +195,50 @@ class SpotRobotWrapper(ABC):
     def show_images(self):
         if self.front_image is not None:
             cv2.imshow("Front images", self.front_image)
+
         # TODO: implement for other image sources
 
-    def get_point_cloud(self):
-        # TODO
+    def get_local_grid(self):
+        # TODO: implement
         pass
 
-    def show_point_cloud(self):
-        # TODO
+    def show_local_grid(self):
+        # TODO: implement
         pass
+
+    def get_point_cloud(self):
+        try:
+            # try to retrieve the image
+            pc_future = self.point_cloud_client.get_image_async(self.point_cloud_requests)
+            while not pc_future.done():
+                keystroke = cv2.waitKey(10)
+                # print(keystroke)
+                if keystroke == VALUE_FOR_ESC_KEYSTROKE or keystroke == VALUE_FOR_Q_KEYSTROKE:
+                    sys.exit(1)
+                if keystroke == VALUE_FOR_P_KEYSTROKE:
+                    pass  # TODO: find use case to print
+
+            # if future is available -> retrieve
+            self.point_cloud = pc_future.result()
+
+        except Exception as err:
+            self._LOGGER.warning(err)
+            raise err
+
+    def show_point_cloud(self):
+        if self.point_cloud is not None:
+            # TODO implement
+            pass
 
     def get_robot_state(self):
         """get robot state - kinematic state and robot state"""
         robot_state = self.state_client.get_robot_state()
         # SE3Pose representing transform of Spot's Body frame relative to the inertial Vision frame
-        vision_tform_body = get_vision_tform_body(
-            robot_state.kinematic_state.transforms_snapshot
-        )
+        vision_tform_body = get_vision_tform_body(robot_state.kinematic_state.transforms_snapshot)
         # odom_tform_body: SE3Pose representing transform of Spot's Body frame relative to the odometry frame
-        odom_tform_body = get_odom_tform_body(
-            robot_state.kinematic_state.transforms_snapshot
-        )
+        odom_tform_body = get_odom_tform_body(robot_state.kinematic_state.transforms_snapshot)
 
-        # TODO define kinematic state as an object with for pose and twist in different frames
-        kinematic_state = []
+        kinematic_state = [vision_tform_body.translation, vision_tform_body.rotation]
 
         return kinematic_state, robot_state
 
@@ -257,12 +252,9 @@ class SpotRobotWrapper(ABC):
 
         if battery_level <= self.WARN_BATTERY_LEVEL:
             self.robot.logger.warning(
-                f"Battery level is at {battery_level}%! Robot will shut down at {self.MIN_BATTERY_LEVEL}%!"
-            )
+                f"Battery level is at {battery_level}%! Robot will shut down at {self.MIN_BATTERY_LEVEL}%!")
         if battery_level <= self.MIN_BATTERY_LEVEL:
-            self.robot.logger.warning(
-                f"Battery level is too low to operate! Robot will shut down!"
-            )
+            self.robot.logger.warning(f"Battery level is too low to operate! Robot will shut down!")
             fail_safe(self.robot)
             return False
 
@@ -303,18 +295,36 @@ class SpotRobotWrapper(ABC):
 
         cmd = RobotCommandBuilder.velocity_command(v_x=v_x, v_y=v_y, v_rot=v_rot)
 
-        self.motion_client.robot_command(
-            cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION
-        )
-        self.robot.logger.info(
-            "Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot)
-        )
+        self.motion_client.robot_command(cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION)
+
+        # self.robot.logger.info("Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot))
 
     def pose_command(self, pose):
-        pass  # TODO
+        """
+        Callback that sends a pose command to Spot
+        Note that the pose commands are always relative to the vision frame, which is an inertial world frame
+        """
+        p_x = pose.position.x
+        p_y = pose.position.y
+        theta = quat_to_euler(pose.orientation).yaw
 
-    def trajectory_command(self, pose):
-        pass  # TODO
+        # Note that the pose commands are always relative to the vision frame, which is an inertial world frame
+        frame = VISION_FRAME_NAME
+
+        cmd = RobotCommandBuilder.trajectory_command(goal_x=p_x, goal_y=p_y, goal_heading=theta, frame_name=frame)
+
+        self.motion_client.robot_command(lease=None, command=cmd,
+                                         end_time_secs=time.time() + self.TRAJECTORY_CMD_TIMEOUT)
+
+        # self.robot.logger.info("Robot pose cmd sent: p_x=${},p_y=${},theta${}".format(p_x, p_y, theta))
+
+    def trajectory_command(self, trajectory):
+        """
+        Callback that sends a trajectory command to Spot
+        Note that the pose commands are always relative to the vision frame, which is an inertial world frame
+        """
+        for pose in trajectory.waypoints.poses:
+            self.pose_command(pose)
 
     @abstractmethod
     def init_stuff(self):
@@ -327,17 +337,17 @@ class SpotRobotWrapper(ABC):
         pass
 
     def run_robot(self):
+        """
+        This method is the main loop of the robot. It will acquire a lease, power on the robot, and then
+        initialize your code. Then it will run the loop_stuff() method in a loop until the program is terminated.
+        """
         try:
-            with bosdyn.client.lease.LeaseKeepAlive(
-                self.lease_client, must_acquire=True, return_at_exit=True
-            ):
+            with bosdyn.client.lease.LeaseKeepAlive(self.lease_client, must_acquire=True, return_at_exit=True):
                 self.robot.logger.info("Acquired lease")
 
                 # power on motors if not already on
                 if self.motors_on:
-                    self.robot.logger.info(
-                        "Powering on robot... This may take a several seconds."
-                    )
+                    self.robot.logger.info("Powering on robot... This may take a several seconds.")
                     self.robot.power_on(timeout_sec=20)
                     assert self.robot.is_powered_on(), "Robot power on failed."
                     self.robot.logger.info("Robot powered on.")
@@ -355,12 +365,13 @@ class SpotRobotWrapper(ABC):
                         if not self.is_battery_ok():
                             break
 
-                        # This method should be contain every thing that should run in a loop
+                        # This method should be contained every thing that should run in a loop
                         # e.g. obtain sensor readings, perform computations, and command actions ...
                         self.loop_stuff()
 
                 except KeyboardInterrupt:
                     self.robot.logger.info("... stopping spot loop.")
+
         except Exception as err:
             # try to sit down spot and shut down motors
             self.robot.logger.error("An error occurred!")
