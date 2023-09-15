@@ -17,8 +17,9 @@ class Robot(SpotRobotWrapper):
         self.get_images()
 
         if self.config.dbg_mode:
+            pass
             # TODO: if you want to execute stuff only in the debug mode do it here
 
-            self.show_images()
-        
-        self.show_point_cloud()
+            # self.show_images()
+
+        # self.show_point_cloud()

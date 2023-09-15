@@ -16,10 +16,10 @@ import numpy as np
 from bosdyn.client.frame_helpers import get_vision_tform_body, get_odom_tform_body, VISION_FRAME_NAME
 from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.local_grid import LocalGridClient
-from bosdyn.client.point_cloud import PointCloudClient, build_pc_request
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.time_sync import TimedOutError
+from bosdyn.client.point_cloud import PointCloudClient
 
 from . import stitch_front_images
 from .grid_utils import get_terrain_markers
@@ -115,14 +115,18 @@ class SpotRobotWrapper(ABC):
 
         # Client to request images from the robot
         self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
-        self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
-                               config.image_sources]
-
-        self.front_image = None
-        self.image_reset_counter = 0
 
         self.image_source_names = [src.name for src in self.image_client.list_image_sources() if "image" in src.name]
         self.depth_image_sources = [src.name for src in self.image_client.list_image_sources() if "depth" in src.name]
+
+        self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
+                               config.image_sources]
+
+        self.depth_image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source
+                                     in ['frontleft_depth', 'frontright_depth']]
+
+        self.front_image = None
+        self.image_reset_counter = 0
 
         # Client to request robot state
         self.state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
@@ -135,15 +139,17 @@ class SpotRobotWrapper(ABC):
         self.local_grid_types = self.grid_client.get_local_grid_types()
 
         # Client to request local point cloud
-        self.point_cloud_client = self.robot.ensure_client(PointCloudClient.default_service_name)
-        self.point_cloud_requests = [build_pc_request(source) for source in config.point_cloud_sources]
+        # FIXME: point cloud is not working
 
-        self.point_cloud = None
-        self.pcv = PointCloudVisualizer()
+        # self.point_cloud_client = self.robot.ensure_client(PointCloudClient)
+        # self.point_cloud_requests = [build_pc_request(source) for source in config.point_cloud_sources]
+        #
+        # self.point_cloud = None
+        # self.pcv = PointCloudVisualizer()
 
-        # FIXME what are the point cloud sources?
-        self.point_cloud_source_names = [src.name for src in self.point_cloud_client.list_point_cloud_sources() if
-                                         "FIXME" in src.name]
+        # # FIXME what are the point cloud sources?
+        # self.point_cloud_source_names = [src.name for src in self.point_cloud_client.list_point_cloud_sources() if
+        #                                  "FIXME" in src.name]
 
         # Only one client at a time can operate a robot.
         self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
@@ -177,12 +183,49 @@ class SpotRobotWrapper(ABC):
             # if future is available -> retrieve
             images = images_future.result()
 
-            self.front_image = stitch_front_images.stitch_front_images(images)
-
-            # remove camera distortion
-            self.front_image = cv2.undistort(self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx)
+            # self.front_image = stitch_front_images.stitch_front_images(images)
+            #
+            # # remove camera distortion
+            # self.front_image = cv2.undistort(self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx)
 
             # TODO: implement for other image sources
+
+            # get depth image
+            depth_future = self.image_client.get_image_async(self.depth_image_requests)
+            while not depth_future.done():
+                pass
+
+            # if future is available -> retrieve
+            depth_images = depth_future.result()
+
+            from PIL import Image
+            import io
+            for image in depth_images:
+                # Depth is a raw bytestream
+                cv_depth = np.frombuffer(image.shot.image.data, dtype=np.uint16)
+                cv_depth = cv_depth.reshape(image.shot.image.rows,
+                                            image.shot.image.cols)
+
+                # Visual is a JPEG
+                # cv_visual = cv2.imdecode(np.frombuffer(image_responses[1].shot.image.data, dtype=np.uint8), -1)
+
+                # Convert the visual image from a single channel to RGB so we can add color
+                # visual_rgb = cv_visual if len(cv_visual.shape) == 3 else cv2.cvtColor(cv_visual, cv2.COLOR_GRAY2RGB)
+
+                # Map depth ranges to color
+
+                # cv2.applyColorMap() only supports 8-bit; convert from 16-bit to 8-bit and do scaling
+                min_val = np.min(cv_depth)
+                max_val = np.max(cv_depth)
+                depth_range = max_val - min_val
+                depth8 = (255.0 / depth_range * (cv_depth - min_val)).astype('uint8')
+                depth8_rgb = cv2.cvtColor(depth8, cv2.COLOR_GRAY2RGB)
+                # depth_color = cv2.applyColorMap(depth8_rgb, cv2.COLORMAP_JET)
+
+                # Add the two images together.
+                # out = cv2.addWeighted(visual_rgb, 0.5, depth_color, 0.5, 0)
+                cv2.imshow("Depth", depth8_rgb)
+
 
         except TimedOutError as time_err:
             # Attempt to handle bad coms:
@@ -232,10 +275,10 @@ class SpotRobotWrapper(ABC):
             raise err
 
     def show_point_cloud(self):
-        if self.point_cloud is not None:
-            # update data of point cloud visualization
-            # FIXME: replace with actual point cloud data
-            self.pcv.update_points(np.random.rand(100, 3))
+        # if self.point_cloud is not None:
+        # update data of point cloud visualization
+        # FIXME: replace with actual point cloud data
+        self.pcv.update_points(np.random.rand(100, 3))
 
     def get_robot_state(self):
         """get robot state - kinematic state and robot state"""
@@ -245,7 +288,7 @@ class SpotRobotWrapper(ABC):
         # odom_tform_body: SE3Pose representing transform of Spot's Body frame relative to the odometry frame
         odom_tform_body = get_odom_tform_body(robot_state.kinematic_state.transforms_snapshot)
 
-        kinematic_state = [vision_tform_body.translation, vision_tform_body.rotation]
+        kinematic_state = []
 
         return kinematic_state, robot_state
 
@@ -362,7 +405,7 @@ class SpotRobotWrapper(ABC):
                     self.robot.logger.info("Not powering on robot, continuing")
 
                 # start point cloud rendering thread
-                # if self.config.show_pc:
+                # if self.config.show_point_cloud:
                 #     render_tread = threading.Thread(target=self.pcv.show_point_cloud)
                 #     render_tread.start()
 
@@ -393,6 +436,6 @@ class SpotRobotWrapper(ABC):
             # stop robot -> sit down
             fail_safe(self.robot)
 
-            # # stop point cloud rendering
+            # stop point cloud rendering
             # self.pcv.render_interactor.TerminateApp()
             # render_tread.join()

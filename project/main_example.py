@@ -56,7 +56,7 @@ def main(argv):
         "--show_point_cloud",
         help="Show point cloud",
         type=bool,
-        default=False,
+        default=True,
     )
     # TODO: You can add/change arguments according to your needs
 
