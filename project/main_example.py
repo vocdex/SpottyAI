@@ -42,7 +42,7 @@ def main(argv):
         "--jpeg-quality-percent",
         help="JPEG quality percentage (0-100)",
         type=int,
-        default=100,
+        default=25,
     )
     # point cloud specific attributes
     # FIXME
