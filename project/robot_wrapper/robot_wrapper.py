@@ -21,9 +21,7 @@ from bosdyn.client.local_grid import LocalGridClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.time_sync import TimedOutError
-from bosdyn.client.point_cloud import PointCloudClient
 
-from .stitch_front_images import stitch_front_images
 from .grid_utils import get_terrain_markers
 
 VALUE_FOR_Q_KEYSTROKE = 113  # quit
