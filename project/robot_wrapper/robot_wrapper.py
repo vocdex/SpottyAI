@@ -119,11 +119,14 @@ class SpotRobotWrapper(ABC):
         self.image_source_names = [src.name for src in self.image_client.list_image_sources() if "image" in src.name]
         self.depth_image_sources = [src.name for src in self.image_client.list_image_sources() if "depth" in src.name]
 
+        # self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
+        #                        config.image_sources]
+
         self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
-                               config.image_sources]
+                               ['frontright_fisheye_image']]
 
         self.depth_image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source
-                                     in ['frontleft_depth', 'frontright_depth']]
+                                     in ['frontright_depth']]
 
         self.front_image = None
         self.image_reset_counter = 0
@@ -172,45 +175,31 @@ class SpotRobotWrapper(ABC):
         try:
             # try to retrieve the image
             images_future = self.image_client.get_image_async(self.image_requests)
-            while not images_future.done():
-                keystroke = cv2.waitKey(10)
-                # print(keystroke)
-                if keystroke == VALUE_FOR_ESC_KEYSTROKE or keystroke == VALUE_FOR_Q_KEYSTROKE:
-                    sys.exit(1)
-                if keystroke == VALUE_FOR_P_KEYSTROKE:
-                    pass  # TODO: find use case to print image
-
             # if future is available -> retrieve
-            images = images_future.result()
+            images_visual = images_future.result()
 
-            # self.front_image = stitch_front_images.stitch_front_images(images)
-            #
+            # get depth image
+            depth_future = self.image_client.get_image_async(self.depth_image_requests)
+            # if future is available -> retrieve
+            images_depth = depth_future.result()
+
+            # self.front_image = stitch_front_images.stitch_front_images(images_visual)
             # # remove camera distortion
             # self.front_image = cv2.undistort(self.front_image, CAMCAL_mtx, CAMCAL_dist, None, CAMCAL_newcameramtx)
 
             # TODO: implement for other image sources
 
-            # get depth image
-            depth_future = self.image_client.get_image_async(self.depth_image_requests)
-            while not depth_future.done():
-                pass
-
-            # if future is available -> retrieve
-            depth_images = depth_future.result()
-
-            from PIL import Image
-            import io
-            for image in depth_images:
+            for image_visual, image_depth in zip(images_visual, images_depth):
                 # Depth is a raw bytestream
-                cv_depth = np.frombuffer(image.shot.image.data, dtype=np.uint16)
-                cv_depth = cv_depth.reshape(image.shot.image.rows,
-                                            image.shot.image.cols)
+                cv_depth = np.frombuffer(image_depth.shot.image.data, dtype=np.uint16)
+                cv_depth = cv_depth.reshape(image_depth.shot.image.rows,
+                                            image_depth.shot.image.cols)
 
                 # Visual is a JPEG
-                # cv_visual = cv2.imdecode(np.frombuffer(image_responses[1].shot.image.data, dtype=np.uint8), -1)
+                cv_visual = cv2.imdecode(np.frombuffer(image_visual.shot.image.data, dtype=np.uint8), -1)
 
                 # Convert the visual image from a single channel to RGB so we can add color
-                # visual_rgb = cv_visual if len(cv_visual.shape) == 3 else cv2.cvtColor(cv_visual, cv2.COLOR_GRAY2RGB)
+                visual_rgb = cv_visual if len(cv_visual.shape) == 3 else cv2.cvtColor(cv_visual, cv2.COLOR_GRAY2RGB)
 
                 # Map depth ranges to color
 
@@ -220,11 +209,13 @@ class SpotRobotWrapper(ABC):
                 depth_range = max_val - min_val
                 depth8 = (255.0 / depth_range * (cv_depth - min_val)).astype('uint8')
                 depth8_rgb = cv2.cvtColor(depth8, cv2.COLOR_GRAY2RGB)
-                # depth_color = cv2.applyColorMap(depth8_rgb, cv2.COLORMAP_JET)
+                depth_color = cv2.applyColorMap(depth8_rgb, cv2.COLORMAP_JET)
 
                 # Add the two images together.
-                # out = cv2.addWeighted(visual_rgb, 0.5, depth_color, 0.5, 0)
-                cv2.imshow("Depth", depth8_rgb)
+                out = cv2.addWeighted(visual_rgb, 0.5, depth_color, 0.5, 0)
+                cv2.imshow("Depth", depth_color)
+                cv2.imshow("Visual", visual_rgb)
+                cv2.imshow("Combined", out)
 
 
         except TimedOutError as time_err:
