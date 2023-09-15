@@ -23,6 +23,7 @@ from bosdyn.client.time_sync import TimedOutError
 
 from . import stitch_front_images
 from .grid_utils import get_terrain_markers
+from .pc_visualizer import PointCloudVisualizer
 
 VALUE_FOR_Q_KEYSTROKE = 113  # quit
 VALUE_FOR_ESC_KEYSTROKE = 27  # quit
@@ -138,12 +139,17 @@ class SpotRobotWrapper(ABC):
         self.point_cloud_requests = [build_pc_request(source) for source in config.point_cloud_sources]
 
         self.point_cloud = None
+        self.pcv = PointCloudVisualizer()
+
+        # FIXME what are the point cloud sources?
+        self.point_cloud_source_names = [src.name for src in self.point_cloud_client.list_point_cloud_sources() if
+                                         "FIXME" in src.name]
 
         # Only one client at a time can operate a robot.
         self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
 
-        # Verify the robot is not estopped and that an external application has registered and holds
-        # an estop endpoint.
+        # Verify the robot is not e-stopped and that an external application has registered and holds
+        # an e-stop endpoint.
         assert not self.robot.is_estopped(), "Robot is estopped. Please use an external E-Stop client, " \
                                              "such as the estop SDK example, to configure E-Stop."
 
@@ -227,8 +233,9 @@ class SpotRobotWrapper(ABC):
 
     def show_point_cloud(self):
         if self.point_cloud is not None:
-            # TODO implement
-            pass
+            # update data of point cloud visualization
+            # FIXME: replace with actual point cloud data
+            self.pcv.update_points(np.random.rand(100, 3))
 
     def get_robot_state(self):
         """get robot state - kinematic state and robot state"""
@@ -327,12 +334,12 @@ class SpotRobotWrapper(ABC):
             self.pose_command(pose)
 
     @abstractmethod
-    def init_stuff(self):
+    def init_robot(self):
         # overwrite this abstract class method with your own initialization
         pass
 
     @abstractmethod
-    def loop_stuff(self):
+    def loop_robot(self):
         # overwrite this abstract class method with your own loop iteration
         pass
 
@@ -354,9 +361,14 @@ class SpotRobotWrapper(ABC):
                 else:
                     self.robot.logger.info("Not powering on robot, continuing")
 
+                # start point cloud rendering thread
+                # if self.config.show_pc:
+                #     render_tread = threading.Thread(target=self.pcv.show_point_cloud)
+                #     render_tread.start()
+
                 # This method should initialize all your stuff which runs in the loop_stuff() method
                 # e.g. initialize states, sensors, stand_up, etc...
-                self.init_stuff()
+                self.init_robot()
 
                 # Loop until Ctrl + C is pressed
                 try:
@@ -367,7 +379,7 @@ class SpotRobotWrapper(ABC):
 
                         # This method should be contained every thing that should run in a loop
                         # e.g. obtain sensor readings, perform computations, and command actions ...
-                        self.loop_stuff()
+                        self.loop_robot()
 
                 except KeyboardInterrupt:
                     self.robot.logger.info("... stopping spot loop.")
@@ -380,3 +392,7 @@ class SpotRobotWrapper(ABC):
         finally:
             # stop robot -> sit down
             fail_safe(self.robot)
+
+            # # stop point cloud rendering
+            # self.pcv.render_interactor.TerminateApp()
+            # render_tread.join()

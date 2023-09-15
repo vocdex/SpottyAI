@@ -2,6 +2,7 @@ import argparse
 import sys
 
 from bosdyn.client.image import ImageClient
+
 from example_project.robot import Robot
 
 
@@ -50,6 +51,12 @@ def main(argv):
         help="Get point cloud from source(s)",
         action="append",
         default=["frontright_fisheye_image", "frontleft_fisheye_image"],
+    )
+    parser.add_argument(
+        "--show_point_cloud",
+        help="Show point cloud",
+        type=bool,
+        default=False,
     )
     # TODO: You can add/change arguments according to your needs
 
