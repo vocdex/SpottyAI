@@ -9,7 +9,7 @@ quick head start into the project.
 
 We assume that you have some experience with the command line, python and git.
 
-If not, 
+If not have a look at the following tutorials, 
 - Command line using Ubuntu: https://ubuntu.com/tutorials/command-line-for-beginners#1-overview
 - Command line using Windows: https://www.cs.princeton.edu/courses/archive/spr05/cos126/cmd-prompt.html
 - a full documentation for **Git** is provided by https://git-scm.com/book/en/v2.
@@ -18,19 +18,41 @@ If not,
 We use the Spot Python SDKs. Therefore, we highly recommend to have a look at https://dev.bostondynamics.com/readme for 
 the conceptual documentation, the installation process and the Python client library.
 
-The Spot SDK Repo has a lot of examples. It is added as a submodule. 
-To load the submodules run the following commands in the command line of the root directory of the repo:
+### Project Repository
 
-``` 
-git submodule init 
-git submodule update
-```
+create a workspace directory on your computer. Initialize a git repository in it and add this repository as a submodule
+
+    git init
+    git submodule add https://gitlab.cs.fau.de/lrt/practical-seminar-mobile-robotics.git
+    git submodule update --init --recursive
 
 ### Install Python and setting up a virtual environment (venv)
+
+We recommend using Pycharm 
 
 We follow the same process as described in BostonDynamics Quickstart https://dev.bostondynamics.com/docs/python/quickstart#system-setup.
 
 Proceed until *'Install Spot Python packages'*. All proceeding steps are either covered by this **README** or will be demonstrated during the first session of the project
+
+### Integrated Development Environment (IDE) 
+
+Before we start to develop code for our robot, we will set up the IDE for an easier development.
+We recommend PyCharm. Feel free to use any other IDE, but we cannot provide any support for these.
+
+### Setup PyCharm (Community)
+after installing PyCharm Community (https://www.jetbrains.com/pycharm/download) we need to set up a new project.
+
+Define the location of the project (use this repo)
+select a python interpreter (use the previously configured virtual environment e.g. `…/spot_venv/bin/python3`, or create a new virtual environment)
+
+You can change the interpreter at any time or have a look at the installed packages.
+
+If you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you can see all installed packages in the venv. 
+
+If you have selected the correct python interpreter you should be able to see the 'bosdyn' packages.
+Additionally, the Terminal in Pycharm should indicate that you are using the venv by showing the name of the venv in brackets.
+
+Note that in Windows the virtual environment is only active in the `Command Promt`! 
 
 ### Package requirements
 
@@ -62,29 +84,9 @@ To ensure that your team is using the latest package requirements run
 
 after you have pulled your code 
 
-### Integrated Development Environment (IDE) 
-
-Before we start to develop code for our robot, we will set up the IDE for an easier development.
-We recommend PyCharm. Feel free to use any other IDE, but we cannot provide any support for these.
-
-#### Setup PyCharm (Community)
-after installing PyCharm Community (https://www.jetbrains.com/pycharm/download) we need to set up a new project.
-
-Define the location of the project (use this repo)
-select a python interpreter (use the previously configured virtual environment e.g. `…/spot_venv/bin/python3`)
-
-You can change the interpreter at any time or have a look at the installed packages.
-
-If you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you can see all installed packages in the venv. 
-
-If you have selected the correct python interpreter you should be able to see the 'bosdyn' packages.
-Additionally, the Terminal in Pycharm should indicate that you are using the venv by showing the name of the venv in brackets.
-
-Note that in Windows the virtual environment is only active in the `Command Promt`! 
-
 ## Hello Spot
 
-... the first session of the project will cover the basics like communicating with Spot.
+... the first in-person session of this course will cover the basics like communicating with Spot and using the robot_wrapper as a basis for your project.
 
 #### remember to launch your code in a venv
 
@@ -102,12 +104,12 @@ for Windows
 
 
 #### WIFI:
-SSID: `spot-BD-10400003`
-password: `q3ezxuygl9l0` - l not 1!
+    SSID: `spot-BD-10400003`
+    password: `q3ezxuygl9l0` - l not 1!
 
 #### Connecting
-Username: `user` 
-Password: `c037gcf6n93f`
+    Username: `user` 
+    Password: `c037gcf6n93f`
 
 for convenience during the examples:
 
@@ -120,5 +122,5 @@ for windows
     set BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
 
 #### robot IP address:
-`192.168.80.3`
+    192.168.80.3
 
