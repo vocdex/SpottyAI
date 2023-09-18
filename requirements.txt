@@ -27,6 +27,8 @@ deprecation==2.1.0
 entrypoints==0.4
 fastjsonschema==2.16.1
 fonttools==4.34.4
+glfw==2.6.2
+grid-utils==0.0.33
 grpcio==1.47.0
 idna==3.3
 importlib-metadata==4.12.0
@@ -84,6 +86,7 @@ pycaw==20220416
 pycparser==2.21
 Pygments==2.13.0
 PyJWT==2.4.0
+PyOpenGL==3.1.7
 pyparsing==3.0.9
 PyQt5==5.15.7
 PyQt5-Qt5==5.15.2
@@ -91,6 +94,7 @@ PyQt5-sip==12.11.0
 pyquaternion==0.9.9
 pyrsistent==0.18.1
 python-dateutil==2.8.2
+python-statemachine==2.1.0
 pytz==2022.2.1
 PyYAML==6.0
 pyzmq==23.2.1
@@ -110,7 +114,7 @@ tqdm==4.64.0
 traitlets==5.3.0
 typing_extensions==4.3.0
 urllib3==1.26.12
-vtk
+vtk==9.2.6
 wcwidth==0.2.5
 webencodings==0.5.1
 websocket-client==1.4.0
