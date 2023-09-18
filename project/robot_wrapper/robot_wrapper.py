@@ -15,7 +15,7 @@ import bosdyn.geometry
 import cv2
 import numpy as np
 from bosdyn.client.frame_helpers import get_vision_tform_body, get_odom_tform_body, VISION_FRAME_NAME, get_a_tform_b, \
-    BODY_FRAME_NAME
+    BODY_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME
 from bosdyn.client.image import ImageClient, build_image_request, depth_image_to_pointcloud
 from bosdyn.client.local_grid import LocalGridClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
@@ -27,16 +27,6 @@ from .grid_utils import get_terrain_markers
 VALUE_FOR_Q_KEYSTROKE = 113  # quit
 VALUE_FOR_ESC_KEYSTROKE = 27  # quit
 VALUE_FOR_P_KEYSTROKE = 112  # pause
-
-CAMCAL_mtx = np.array([[917.87243629, 0.0, 507.66305637], [0.0, 645.85695, 384.91475472], [0.0, 0.0, 1.0]])
-
-CAMCAL_dist = np.array([[0.88962234, -0.72184465, -0.09753065, 0.00564781, 1.28539346]])
-
-CAMCAL_newcameramtx = np.array(
-    [[1.08690259e03, 0.00000000e00, 5.18230710e02], [0.00000000e00, 7.58720581e02, 3.43867982e02],
-     [0.00000000e00, 0.00000000e00, 1.00000000e00], ])
-
-CAMCAL_roi = (90, 63, 882, 613)
 
 
 def ping_robot(hostname):
@@ -115,18 +105,6 @@ class SpotRobotWrapper(ABC):
         # Client to request images from the robot
         self.image_client = self.robot.ensure_client(ImageClient.default_service_name)
 
-        image_source = ['frontleft', 'frontright', 'left', 'right', 'back']
-        self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
-                               [string + '_fisheye_image' for string in image_source]]
-
-        self.depth_image_requests = [build_image_request(source, quality_percent=20) for source
-                                     in [string + '_depth' for string in image_source]]
-
-        self.images_visual = None
-
-        self.front_image = None
-        self.image_reset_counter = 0
-
         # Client to request robot state
         self.state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
 
@@ -135,22 +113,41 @@ class SpotRobotWrapper(ABC):
 
         # Client to request local occupancy grid
         self.grid_client = self.robot.ensure_client(LocalGridClient.default_service_name)
-        self.local_grid_types = self.grid_client.get_local_grid_types()
+
+        # Only one client at a time can operate a robot.
+        self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
+
+        # you can define which cameras you want to use (see config)
+        # it is recommended to use all depth cameras to get a 360 degree point cloud
+        image_source_visual = config.image_visual_sources
+        image_source_depth = config.image_depth_sources
+
+        self.image_requests = [build_image_request(source, quality_percent=config.jpeg_quality_percent) for source in
+                               [string + '_fisheye_image' for string in image_source_visual]]
+
+        self.depth_image_requests = [build_image_request(source, quality_percent=20) for source
+                                     in [string + '_depth' for string in image_source_depth]]
+
+        # list of image responses
+        self.images_visual = None
+
+        # counter to reset image client if RPC timeout
+        self.image_reset_counter = 0
 
         self.point_cloud = None
         self.pcd = o3d.geometry.PointCloud()
         self.o3d_visualizer = None
 
-        # Only one client at a time can operate a robot.
-        self.lease_client = self.robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
-
-        # Verify the robot is not e-stopped and that an external application has registered and holds
-        # an e-stop endpoint.
-        assert not self.robot.is_estopped(), "Robot is estopped. Please use an external E-Stop client, " \
-                                             "such as the estop SDK example, to configure E-Stop."
+        self.local_grid_types = self.grid_client.get_local_grid_types()
 
         # flag if motors are on
         self.motors_on = config.motors_on
+
+        if self.motors_on:
+            # Verify the robot is not e-stopped and that an external application has registered and holds
+            # an e-stop endpoint.
+            assert not self.robot.is_estopped(), "Robot is estopped. Please use an external E-Stop client, " \
+                                                 "such as the estop SDK example, to configure E-Stop."
 
     def reset_image_client(self):
         """Recreate the ImageClient from the robot object."""
@@ -204,11 +201,11 @@ class SpotRobotWrapper(ABC):
             cv2.imshow(image_visual.shot.frame_name_image_sensor, visual_rgb)
 
     def get_local_grid(self):
-        # TODO: implement
+        # (currently not used)
         pass
 
     def show_local_grid(self):
-        # TODO: implement
+        # (currently not used)
         pass
 
     def get_point_cloud(self):
@@ -231,7 +228,7 @@ class SpotRobotWrapper(ABC):
             self.point_cloud = np.zeros((0, 3))
             for image_depth in images_depth:
                 # transformation matrix from camera frame to body frame
-                body_T_image_sensor = get_a_tform_b(image_depth.shot.transforms_snapshot, BODY_FRAME_NAME,
+                body_T_image_sensor = get_a_tform_b(image_depth.shot.transforms_snapshot, GRAV_ALIGNED_BODY_FRAME_NAME,
                                                     image_depth.shot.frame_name_image_sensor)
 
                 # get point cloud from depth image in camera frame
@@ -264,12 +261,19 @@ class SpotRobotWrapper(ABC):
     def get_robot_state(self):
         """get robot state - kinematic state and robot state"""
         robot_state = self.state_client.get_robot_state()
-        # SE3Pose representing transform of Spot's Body frame relative to the inertial Vision frame
+        
+        # vision_tform_body:
+        # SE3Pose representing transform of Spot's Body frame
+        # relative to the inertial Vision frame (includes vision information)
         vision_tform_body = get_vision_tform_body(robot_state.kinematic_state.transforms_snapshot)
-        # odom_tform_body: SE3Pose representing transform of Spot's Body frame relative to the odometry frame
+
+        # odom_tform_body:
+        # SE3Pose representing transform of Spot's Body frame
+        # relative to the odometry frame (includes only odometry information)
         odom_tform_body = get_odom_tform_body(robot_state.kinematic_state.transforms_snapshot)
 
-        kinematic_state = []
+        # TODO: you might want to change this according to your needs
+        kinematic_state = vision_tform_body
 
         return kinematic_state, robot_state
 
@@ -385,11 +389,6 @@ class SpotRobotWrapper(ABC):
                 else:
                     self.robot.logger.info("Not powering on robot, continuing")
 
-                # start point cloud rendering thread
-                # if self.config.show_point_cloud:
-                #     render_tread = threading.Thread(target=self.pcv.show_point_cloud)
-                #     render_tread.start()
-
                 # This method should initialize all your stuff which runs in the loop_stuff() method
                 # e.g. initialize states, sensors, stand_up, etc...
                 self.init_robot()
@@ -416,7 +415,3 @@ class SpotRobotWrapper(ABC):
         finally:
             # stop robot -> sit down
             fail_safe(self.robot)
-
-            # # stop point cloud rendering
-            # self.pcv.render_interactor.TerminateApp()
-            # render_tread.join()

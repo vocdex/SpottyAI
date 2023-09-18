@@ -27,10 +27,10 @@ def main(argv):
 
     # image specific attributes
     parser.add_argument(
-        "--image-sources",
+        "--image-visual-sources",
         help="Get image from source(s)",
         action="append",
-        default=["frontright_fisheye_image", "frontleft_fisheye_image"],
+        default=['frontleft', 'frontright', 'left', 'right', 'back'],
     )
     parser.add_argument(
         "--image-service",
@@ -44,19 +44,14 @@ def main(argv):
         type=int,
         default=25,
     )
-    # point cloud specific attributes
-    # FIXME
+
+    # point cloud specific attributes, you can define which cameras you want to use,
+    # it is recommended to use all depth cameras to get a 360 degree point cloud
     parser.add_argument(
-        "--point_cloud-sources",
-        help="Get point cloud from source(s)",
+        "--image-depth-sources",
+        help="Get image from source(s)",
         action="append",
-        default=["frontright_fisheye_image", "frontleft_fisheye_image"],
-    )
-    parser.add_argument(
-        "--show_point_cloud",
-        help="Show point cloud",
-        type=bool,
-        default=True,
+        default=['frontleft', 'frontright', 'left', 'right', 'back'],
     )
     # TODO: You can add/change arguments according to your needs
 
