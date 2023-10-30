@@ -6,6 +6,7 @@ import sys
 import open3d as o3d
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import bosdyn.client
 import bosdyn.client.estop
@@ -65,12 +66,18 @@ def quat_to_euler(quat):
     yaw = math.atan2(2 * q[2] * q[3] + 2 * q[0] * q[1], 1 - 2 * q[1] ** 2 - 2 * q[2] ** 2)
     return bosdyn.geometry.EulerZXY(yaw=yaw, roll=roll, pitch=pitch)
 
+@dataclass
+class Velocity2D:
+    x: float = 0
+    y: float = 0
+    phi: float = 0
+
 
 class SpotRobotWrapper(ABC):
     """Callbacks for an instance of a Spot robot"""
 
     # 0.6 s is the standard duration for cmds in boston dynamics Spot examples
-    VELOCITY_CMD_DURATION = 0.6  # [seconds]
+    VELOCITY_CMD_DURATION = 1.0 # [seconds]
     TRAJECTORY_CMD_TIMEOUT = 20.0  # [seconds]
     WARN_BATTERY_LEVEL = 30  # [%]
     MIN_BATTERY_LEVEL = 15  # [%]
@@ -141,7 +148,7 @@ class SpotRobotWrapper(ABC):
         self.local_grid_types = self.grid_client.get_local_grid_types()
 
         # flag if motors are on
-        self.motors_on = config.motors_on
+        self.motors_on = config.motors_on and config.control_lease
 
         if self.motors_on:
             # Verify the robot is not e-stopped and that an external application has registered and holds
@@ -321,18 +328,20 @@ class SpotRobotWrapper(ABC):
         ret = self.motion_client.robot_command(command)
         self.robot.logger.info("Robot stand cmd sent. {}".format(ret))
 
-    def velocity_command(self, twist):
+    def velocity_command(self, v: Velocity2D):
         """Callback that sends instantaneous velocity [m/s] commands to Spot"""
+        if self.motors_on:
+            v_x = v.x
+            v_y = v.y
+            v_rot = v.phi
 
-        v_x = twist.velocity.linear.x
-        v_y = twist.velocity.linear.y
-        v_rot = twist.velocity.angular.z
+            cmd = RobotCommandBuilder.velocity_command(v_x=v_x, v_y=v_y, v_rot=v_rot)
 
-        cmd = RobotCommandBuilder.velocity_command(v_x=v_x, v_y=v_y, v_rot=v_rot)
+            self.motion_client.robot_command(cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION)
 
-        self.motion_client.robot_command(cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION)
-
-        # self.robot.logger.info("Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot))
+            # self.robot.logger.info("Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot))
+        else:
+            self.robot.logger.warning(f"Motors are off! You can not command the robot!")
 
     def pose_command(self, pose):
         """

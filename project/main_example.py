@@ -22,13 +22,13 @@ def main(argv):
         "--control_lease",
         help="if true, this device will have control over spot",
         type=bool,
-        default=False,
+        default=True,
     )
     parser.add_argument(
         "--motors_on",
         help="if true, will power on motors",
         type=bool,
-        default=False,
+        default=True,
     )
 
     # image specific attributes
