@@ -15,7 +15,7 @@ import bosdyn.geometry
 import cv2
 import numpy as np
 from bosdyn.client.frame_helpers import get_vision_tform_body, get_odom_tform_body, VISION_FRAME_NAME, get_a_tform_b, \
-    BODY_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME
+    BODY_FRAME_NAME
 from bosdyn.client.image import ImageClient, build_image_request, depth_image_to_pointcloud
 from bosdyn.client.local_grid import LocalGridClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
@@ -85,7 +85,7 @@ class SpotRobotWrapper(ABC):
         self.password = "c037gcf6n93f"
 
         # Ensure interface can ping Spot
-        ping_robot(self.hostname)
+        # ping_robot(self.hostname)
 
         # Set up SDK
         bosdyn.client.util.setup_logging(config.verbose)
@@ -228,8 +228,8 @@ class SpotRobotWrapper(ABC):
             self.point_cloud = np.zeros((0, 3))
             for image_depth in images_depth:
                 # transformation matrix from camera frame to body frame
-                body_T_image_sensor = get_a_tform_b(image_depth.shot.transforms_snapshot, GRAV_ALIGNED_BODY_FRAME_NAME,
-                                                    image_depth.shot.frame_name_image_sensor)
+                body_T_image_sensor = get_a_tform_b(image_depth.shot.transforms_snapshot, frame_a=BODY_FRAME_NAME,
+                                                   frame_b=image_depth.shot.frame_name_image_sensor)
 
                 # get point cloud from depth image in camera frame
                 camera_point_cloud = depth_image_to_pointcloud(image_depth)
@@ -377,17 +377,21 @@ class SpotRobotWrapper(ABC):
         initialize your code. Then it will run the loop_stuff() method in a loop until the program is terminated.
         """
         try:
-            with bosdyn.client.lease.LeaseKeepAlive(self.lease_client, must_acquire=True, return_at_exit=True):
-                self.robot.logger.info("Acquired lease")
+            with bosdyn.client.lease.LeaseKeepAlive(self.lease_client, must_acquire=self.config.control_lease, return_at_exit=True):
+                if self.config.control_lease:
+                    self.robot.logger.info("Acquired lease")
 
-                # power on motors if not already on
-                if self.motors_on:
-                    self.robot.logger.info("Powering on robot... This may take a several seconds.")
-                    self.robot.power_on(timeout_sec=20)
-                    assert self.robot.is_powered_on(), "Robot power on failed."
-                    self.robot.logger.info("Robot powered on.")
+                    # power on motors if not already on
+                    if self.motors_on:
+                        self.robot.logger.info("Powering on robot... This may take a several seconds.")
+                        self.robot.power_on(timeout_sec=20)
+                        assert self.robot.is_powered_on(), "Robot power on failed."
+                        self.robot.logger.info("Robot powered on.")
+                    else:
+                        self.robot.logger.info("Not powering on robot, continuing")
                 else:
-                    self.robot.logger.info("Not powering on robot, continuing")
+                    self.motors_on = False
+                    self.robot.logger.info("No lease acquired - another device can control spot!")
 
                 # This method should initialize all your stuff which runs in the loop_stuff() method
                 # e.g. initialize states, sensors, stand_up, etc...

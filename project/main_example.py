@@ -19,6 +19,12 @@ def main(argv):
         "--verbose", help="show logging", type=bool, default=False
     )
     parser.add_argument(
+        "--control_lease",
+        help="if true, this device will have control over spot",
+        type=bool,
+        default=False,
+    )
+    parser.add_argument(
         "--motors_on",
         help="if true, will power on motors",
         type=bool,
