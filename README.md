@@ -1,8 +1,7 @@
 # Project Mobile Robotics
 
 This repository provides the codebase and an initial structure for the Mobile Robotics project of the Chair of 
-Automatic Control at FAU.
-The intention of the repo is to provide you with all the required tools and examples that allow a 
+Automatic Control at FAU. The intention of the repository is to provide you with all the required tools and examples that allow a 
 quick head start into the project.
 
 ## Getting started
@@ -18,55 +17,51 @@ If not have a look at the following tutorials,
 We use the Spot Python SDKs. Therefore, we highly recommend to have a look at https://dev.bostondynamics.com/readme for 
 the conceptual documentation, the installation process and the Python client library.
 
+### required software
+
+- GIT: https://git-scm.com/download/win
+- Python 3.8.10 (Please use this version!):  https://www.python.org/downloads/release/python-3810/
+- Pycharm Community: https://www.jetbrains.com/pycharm/download/?section=windows
+
 ### Project Repository
 
-create a workspace directory on your computer. Initialize a git repository in it and add this repository as a submodule
+create a workspace directory on your computer. Clone the repository in it and update the submodules
 
-    git init
-    git submodule add https://gitlab.cs.fau.de/lrt/practical-seminar-mobile-robotics.git
+    git clone https://gitlab.cs.fau.de/lrt/practical-seminar-mobile-robotics.git
+    cd  practical-seminar-mobile-robotics
     git submodule update --init --recursive
 
-### Install Python and setting up a virtual environment (venv)
+### Setting up a virtual python environment (venv)
 
-We recommend using Pycharm 
+We recommend using Pycharm for this process.
 
-We follow the same process as described in BostonDynamics Quickstart https://dev.bostondynamics.com/docs/python/quickstart#system-setup.
+- open a project. Select practical-seminar-mobile-robotics as the root folder
+- Define the interpreter as a venv (select Python 3.8.10 here as a base interpreter)
+- install required packages Normally it installs them automatically. 
 
-Proceed until *'Install Spot Python packages'*. All proceeding steps are either covered by this **README** or will be demonstrated during the first session of the project
-
-### Integrated Development Environment (IDE) 
-
-Before we start to develop code for our robot, we will set up the IDE for an easier development.
-We recommend PyCharm. Feel free to use any other IDE, but we cannot provide any support for these.
-
-### Setup PyCharm (Community)
-after installing PyCharm Community (https://www.jetbrains.com/pycharm/download) we need to set up a new project.
-
-Define the location of the project (use this repo)
-select a python interpreter (use the previously configured virtual environment e.g. `…/spot_venv/bin/python3`, or create a new virtual environment)
-
-You can change the interpreter at any time or have a look at the installed packages.
-
-If you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you can see all installed packages in the venv. 
+You can change the interpreter later on if you go to `File->Settings: Project <Project-Name> -> Python Interpreter` you can see all installed packages in the venv. 
 
 If you have selected the correct python interpreter you should be able to see the 'bosdyn' packages.
 Additionally, the Terminal in Pycharm should indicate that you are using the venv by showing the name of the venv in brackets.
 
 Note that in Windows the virtual environment is only active in the `Command Promt`! 
 
-### Package requirements
+#### activating venv in the command line
+If correctly setup, pycharm automatically activates the right Python environment in the command prompt. If not use 
 
-Our code requires external packages. The most important ones are the spot python packages to communicate with the robot.
-You could manually install all the required packages, but this might be inefficient.  
-To ensure that you and your team is always using the same packages, a `requirements.txt` file can be very useful.
+activate venv: 
+    
+    source ~/.../venv/bin/activate
 
-To keep our package management clean we only want to make the packages of the venv a requirement.
-Ensure that you have activated the virtual environment (as proposed by BostonDynamics)
-indicated by the name of the venv in brackets in the command line.
+deactivate venv: 
+    
+    deactivate
 
-I have already created a requirements.txt file which includes the most basic packages to get you started. 
+for Windows
 
-To install them, run the following command in the root directory of this repo:
+    .\venv\Scripts\activate
+
+If you failed to install the requirements, run the following command in the root directory of this repo (ensure that you activated the venv):
 
 `pip install -r requirements.txt` 
 
@@ -88,39 +83,16 @@ after you have pulled your code
 
 ... the first in-person session of this course will cover the basics like communicating with Spot and using the robot_wrapper as a basis for your project.
 
-#### remember to launch your code in a venv
+## Important information 
 
-activate venv: 
-    
-    source ~/.../spot_env/bin/activate
+### WIFI:
+    SSID: spot-BD-10400003
+    password: q3ezxuygl9l0 // - l not 1!
 
-deactivate venv: 
-    
-    deactivate
+### Connecting/ Authentification
+    Username: student
+    Password: LRT-Spot03025
 
-for Windows
-
-    .\spot_env\Scripts\activate
-
-
-#### WIFI:
-    SSID: `spot-BD-10400003`
-    password: `q3ezxuygl9l0` - l not 1!
-
-#### Connecting
-    Username: `user` 
-    Password: `c037gcf6n93f`
-
-for convenience during the examples:
-
-    export BOSDYN_CLIENT_USERNAME=user
-    export BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
-
-for windows
-
-    set BOSDYN_CLIENT_USERNAME=user
-    set BOSDYN_CLIENT_PASSWORD=c037gcf6n93f 
-
-#### robot IP address:
+### robot IP address:
     192.168.80.3
 
