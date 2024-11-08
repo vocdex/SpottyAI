@@ -324,7 +324,7 @@ class SpotRobotWrapper(ABC):
             self.robot.logger.error("You need to turn on the motors first")
             raise ValueError("config.motors_on is False! -> can not power on robot.")
 
-        command = RobotCommandBuilder.stand_command()
+        command = RobotCommandBuilder.synchro_stand_command()
         ret = self.motion_client.robot_command(command)
         self.robot.logger.info("Robot stand cmd sent. {}".format(ret))
 
@@ -335,7 +335,7 @@ class SpotRobotWrapper(ABC):
             v_y = v.y
             v_rot = v.phi
 
-            cmd = RobotCommandBuilder.velocity_command(v_x=v_x, v_y=v_y, v_rot=v_rot)
+            cmd = RobotCommandBuilder.synchro_velocity_command(v_x=v_x, v_y=v_y, v_rot=v_rot)
 
             self.motion_client.robot_command(cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION)
 

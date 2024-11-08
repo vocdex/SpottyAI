@@ -15,8 +15,8 @@ class Robot(SpotRobotWrapper):
 
         time.sleep(1)
 
-        # v = Velocity2D(0,0,0)
-        # self.velocity_command(v)
+        v = Velocity2D(1,0,0)
+        self.velocity_command(v)
 
         logging.info("Robot initialized")
 
