@@ -42,7 +42,11 @@ def classify_images(images):
 
 
 if __name__ == "__main__":
-    imagedir = "images"
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image_dir", type=str)
+    args = parser.parse_args()
+    imagedir = args.image_dir
     images = os.listdir(imagedir)
     images = [os.path.join(imagedir, image) for image in images]
     labels = classify_images(images)
