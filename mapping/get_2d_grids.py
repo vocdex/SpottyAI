@@ -89,6 +89,7 @@ def plot_occupancy_grid(grid, resolution=0.1):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert a 3D point cloud into a 2D occupancy grid map.')
     parser.add_argument('--ply_file', type=str, help='Path to the .ply file')
+    parser.add_argument('--output_dir', type=str, default='./images', help='Output directory for the image')
     parser.add_argument('--resolution', type=float, default=0.1, help='Grid cell size in meters')
     parser.add_argument('--height_filter', type=float, nargs=2, default=(0.0, 2.0), help='Min and max Z values for filtering points')
     parser.add_argument('--apply_filters', action='store_true', help='Apply dilation and smoothing filters')
@@ -100,5 +101,6 @@ if __name__ == '__main__':
     img = occupancy_grid_to_image(grid, args.resolution)
     ply_name = os.path.basename(args.ply_file)
     img_name = os.path.splitext(ply_name)[0]+"_filters_"+str(args.apply_filters)+ '.png'
+    img_name = os.path.join(args.output_dir, img_name)
     img.save(img_name)
     print(f'Saved occupancy grid image to {img_name}')
