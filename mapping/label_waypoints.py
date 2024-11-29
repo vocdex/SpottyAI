@@ -1,5 +1,5 @@
 """Given a recorded GraphNav graph, this script updates the annotations of the waypoints based on a custom mapping.
-Custom labels are defined in a dictionary where the original annotation is the key and the new annotation is the value.
+Custom labels are defined in a dictionary where the original annotation is the key and the new annotation is the label.
 Refer to the example_usage function for an example of how to use this script.
 """
 import os
