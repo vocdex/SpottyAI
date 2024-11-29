@@ -5,6 +5,11 @@ Downloading, reproducing, distributing or otherwise using the SDK Software
 is subject to the terms and conditions of the Boston Dynamics Software
 Development Kit License (20191101-BDSDK-SL).
 -->
+# Main Changes
+The main changes in this script are:
+- Added a new command to navigate to a waypoint by label name. If multiple waypoints are present for a label, the robot will navigate to the waypoint that is closest to geometrical center of the matching waypoints for a label.
+- Added auto_authenticate function that will authenticate the robot when mapping and navigation scripts are run.
+- Added label_waypoints.py script that changes the waypoint annotation names to labels specified in the script ("kitchen", "living room", "bedroom", "bathroom", "hallway").
 
 # GraphNav and Recording Service Command Line Interfaces
 
@@ -135,12 +140,13 @@ After running the example, you will see the following options:
         When only yaw is specified, the quaternion is constructed from the yaw.
         When yaw is not specified, an identity quaternion is used.
     (9) Clear the current graph.
+    (10) Navigate to a destination by label name. If multiple waypoints are present for a label, the robot will navigate to the waypoint that is closest to geometrical center of the matching waypoints for a label
     (q) Exit.
 ```
 
 To execute a command, type the letter or number next to that command, and press *enter*.
 
-Before the robot can complete any navigation commands, a map must be uploaded (option *5*) to the robot or recorded on the robot recently without powering off the robot. Additionally, the localization must be set: it will automatically be localized to the map if it was just recorded on the robot without any power cycles; otherwise, the localization must manually be initialized (option *2* is recommended) when the robot is standing near a fiducial in the recorded map.
+Before the robot can complete any navigation commands, a map must be uploaded (option *5*) to the robot or recorded on the robot recently without powering off the robot. Additionally, the localization must be set: it will **automatically be localized to the map if it was just recorded on the robot without any power cycles**; otherwise, the localization must manually be initialized (option *2* is recommended) when the robot is standing near a fiducial in the recorded map.
 
 **Navigation Commands**
 
@@ -173,3 +179,25 @@ For example, this command:
 Would navigate to an anchor (option *8*), located at `x = 5.2m`, `y = 3.1m`, `yaw=0.1 radians`. The robot would then walk along the path to the nearest waypoint to that location, and then attempt to walk in a straight line to it.
 
 > **NOTE**: use the get localization state command (option *1*) to see where the robot believes it is in the seed frame, and which waypoint it believes it is currently at.
+
+
+### Label Waypoints in the Graph
+
+Given a recorded map, our goal is to navigate to places and/or objects in the map. 
+To achieve this, we can label the waypoints in the map with the names of the places or objects we want to navigate to.
+For example the following waypoint ids are labeled as follows:
+- `zigzag-filly-8ieN.xz8c9pL5tDZtQYW+w==` is labeled as `kitchen`
+- `unread-beagle-vQfl7NrKVhHPOUoos+ffIg==` is labeled as `living room`
+- `hammy-skink-iKQI6hGQ.fCBWXJy6mmjqg==` is labeled as `bedroom`
+#### Manually Label Waypoints
+To label the entire graph with a manually created label dictionary, run the `label_waypoints.py` script. This script will change the waypoint annotation names to labels specified in the script ("kitchen", "living room", "bedroom", "bathroom", "hallway").
+```bash
+python label_waypoints.py --graph_file_path <path_to_graph_file> --output_dir <output_dir> --output_file_name <output_file_name>
+```
+Example:
+```bash
+python label_waypoint.py ./loop_closure/graph 
+```
+Note that you need to change the **custom_labels** dictionary in the script to match the labels you want to use.
+#### Automatically Label Waypoints
+Not ready. The goal here is to automatically label the waypoints in the map with the names of the places or objects we want to navigate to. This can be done by using a machine learning model to recognize the places or objects in the map and label the waypoints accordingly.
