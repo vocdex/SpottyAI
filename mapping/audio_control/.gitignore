@@ -1,0 +1,6 @@
+/models
+.huggingface/
+*.gguf
+*.gguf2
+*.lock
+*.metadata

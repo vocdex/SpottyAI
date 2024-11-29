@@ -1,0 +1,1 @@
+[{"action": "navigate_to", "location": "living_room"}, {"action": "navigate_to", "location": "kitchen"}, {"action": "find_object", "object": "mug"}]
