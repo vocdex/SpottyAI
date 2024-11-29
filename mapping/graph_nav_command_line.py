@@ -13,6 +13,7 @@ import math
 import os
 import sys
 import time
+import numpy as np
 
 from bosdyn.api import geometry_pb2
 from bosdyn.api import power_pb2
@@ -97,7 +98,8 @@ class GraphNavInterface(object):
             '6': self._navigate_to,
             '7': self._navigate_route,
             '8': self._navigate_to_anchor,
-            '9': self._clear_graph
+            '9': self._clear_graph,
+            '10': self._navigate_to_by_annotation
         }
 
     def _get_localization_state(self, *args):
@@ -328,6 +330,98 @@ class GraphNavInterface(object):
         if self._powered_on and not self._started_powered_on:
             # Sit the robot down + power off after the navigation command is complete.
             self.toggle_power(should_power_on=False)
+    
+    
+    def _navigate_to_by_annotation(self, *args):
+        """Navigate to the most central waypoint with a given annotation."""
+        if len(args) < 1:
+            print("No waypoint annotation provided as a destination.")
+            return
+        
+        annotation_to_find = args[0][0]
+        
+        # Ensure graph is loaded
+        if self._current_graph is None:
+            self._list_graph_waypoint_and_edge_ids()
+        
+        # Collect all waypoints with matching annotation
+        matching_waypoints = [
+            waypoint for waypoint in self._current_graph.waypoints 
+            if waypoint.annotations.name == annotation_to_find
+        ]
+        
+        if not matching_waypoints:
+            print(f"No waypoint found with annotation: {annotation_to_find}")
+            return
+        
+        # Select the most central waypoint by finding the one with minimum total distance to other waypoints
+        def calculate_centrality(waypoint):
+            # Extract 3D position coordinates
+            x = waypoint.waypoint_tform_ko.position.x
+            y = waypoint.waypoint_tform_ko.position.y
+            z = waypoint.   waypoint_tform_ko.position.z
+            
+            # Calculate total Euclidean distance to all other waypoints
+            distances = [
+                np.linalg.norm(
+                    np.array([x, y, z]) - 
+                    np.array([
+                        w.waypoint_tform_ko.position.x,
+                        w.waypoint_tform_ko.position.y,
+                        w.waypoint_tform_ko.position.z
+                    ])
+                ) for w in matching_waypoints
+            ]
+    
+            # Return sum of distances (lower sum indicates more central location)
+            return sum(distances)
+          
+        destination_waypoint = min(matching_waypoints, key=calculate_centrality).id
+        if not destination_waypoint:
+            # Failed to find the appropriate unique waypoint id for the navigation command.
+            print("Failed to find the appropriate unique waypoint id for the navigation command.")
+            print("Using the first matching waypoint instead.")
+            destination_waypoint = matching_waypoints[0].id
+        matching_waypoints = [waypoint.id for waypoint in matching_waypoints]
+        print(f"The following waypoints matched your query: {matching_waypoints}")
+        
+        print(f"Destination waypoint: {destination_waypoint}")
+
+        
+        # Lease and power management
+        self._lease = self._lease_wallet.get_lease()
+        if not self.toggle_power(should_power_on=True):
+            print("Failed to power on the robot, and cannot complete navigate to request.")
+            return
+        
+        # Stop the lease keep-alive and create a new sublease for graph nav
+        self._lease = self._lease_wallet.advance()
+        sublease = self._lease.create_sublease()
+        self._lease_keepalive.shutdown()
+        nav_to_cmd_id = None
+        
+        # Navigate to the destination waypoint
+        is_finished = False
+        while not is_finished:
+            try:
+                nav_to_cmd_id = self._graph_nav_client.navigate_to(destination_waypoint, 1.0,
+                                                                leases=[sublease.lease_proto],
+                                                                command_id=nav_to_cmd_id)
+            except ResponseError as e:
+                print(f"Error while navigating {e}")
+                break
+            
+            time.sleep(.5)  # Sleep for half a second to allow for command execution
+            # Poll the robot for feedback to determine if the navigation command is complete
+            is_finished = self._check_success(nav_to_cmd_id)
+        
+        # Update lease and power management
+        self._lease = self._lease_wallet.advance()
+        self._lease_keepalive = LeaseKeepAlive(self._lease_client)
+        
+        # Power off if appropriate
+        if self._powered_on and not self._started_powered_on:
+            self.toggle_power(should_power_on=False)
 
     def _navigate_route(self, *args):
         """Navigate through a specific route of waypoints."""
@@ -497,6 +591,7 @@ class GraphNavInterface(object):
                 When only yaw is specified, the quaternion is constructed from the yaw.
                 When yaw is not specified, an identity quaternion is used.
             (9) Clear the current graph.
+            (10) Navigate to the most central waypoint with a given annotation.
             (q) Exit.
             """)
             try:
