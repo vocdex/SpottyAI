@@ -58,13 +58,13 @@ class WaypointAnnotationUpdater:
     def save_updated_graph(
         self, 
         output_dir: str = None, 
-        output_filename: str = None
+        output_file_name: str = None
     ) -> str:
         """
         Save the updated graph to a new file.
         
         :param output_dir: Optional directory to save the updated graph. 
-        :param output_filename: Optional custom filename.
+        :param output_file_name: Optional custom file name.
         :return: Path to the saved graph file
         """
         # Determine the output directory
@@ -75,12 +75,12 @@ class WaypointAnnotationUpdater:
         os.makedirs(output_dir, exist_ok=True)
         
         # Determine the output filename
-        if not output_filename:
-            base_filename = os.path.basename(self.graph_file_path)
-            output_filename = f"updated_{base_filename}"
+        if not output_file_name:
+            base_file_name = os.path.basename(self.graph_file_path)
+            output_file_name = f"updated_{base_file_name}"
         
         # Create full output path
-        full_output_path = os.path.join(output_dir, output_filename)
+        full_output_path = os.path.join(output_dir, output_file_name)
         
         # Save the updated graph
         with open(full_output_path, 'wb') as graph_file:
@@ -163,7 +163,7 @@ def example_usage(args):
     # Save updated graph
     updater.save_updated_graph(
         output_dir=args.output_dir, 
-        output_filename=args.output_filename
+        output_file_name=args.output_file_name
     )
 
 def main():
@@ -175,7 +175,7 @@ def main():
                         help="Path to the graph file that is to be updated")
     parser.add_argument("--output_dir", type=str, required=False,
                         help="Directory to save the updated graph")
-    parser.add_argument("--output_filename", type=str, required=False,
+    parser.add_argument("--output_file_name", type=str, required=False,
                         help="Filename for the updated graph")
     
     args = parser.parse_args()

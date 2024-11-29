@@ -30,12 +30,12 @@ from bosdyn.client.lease import LeaseClient, LeaseKeepAlive, LeaseWallet, Resour
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
-from robot_utils import auto_authenticate
+from utils.robot_utils import auto_authenticate
 import bosdyn.client.util
 import google.protobuf.timestamp_pb2
 
 
-import graph_nav_util
+from utils import graph_nav_util
 
 
 class GraphNavInterface(object):
