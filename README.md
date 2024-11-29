@@ -1,5 +1,7 @@
 # Project Mobile Robotics
-
+## Main Changes
+- Environment mapping and navigation are implemented inside the /mapping folder. Please refer to the README.md file inside the folder for more information.
+- 
 This repository provides the codebase and an initial structure for the Mobile Robotics project of the Chair of 
 Automatic Control at FAU. The intention of the repository is to provide you with all the required tools and examples that allow a 
 quick head start into the project.
