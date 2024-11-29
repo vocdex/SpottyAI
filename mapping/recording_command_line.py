@@ -25,11 +25,7 @@ from google.protobuf import wrappers_pb2 as wrappers
 
 import graph_nav_util
 
-HOSTNAME = "192.168.80.3"
-USERNAME = "user"
-PASSWORD = "c037gcf6n93f"
 
- 
 class RecordingInterface(object):
     """Recording service command line interface."""
 
@@ -399,11 +395,6 @@ class RecordingInterface(object):
                 cmd_func(str.split(inputs)[1:])
             except Exception as e:
                 print(e)
-
-def auto_authenticate(robot):
-    robot.authenticate(USERNAME, PASSWORD, timeout=20)
-    robot.sync_with_directory()
-    robot.time_sync.wait_for_sync()
 
 
 def main(argv):

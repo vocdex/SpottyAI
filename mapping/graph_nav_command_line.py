@@ -30,7 +30,7 @@ from bosdyn.client.lease import LeaseClient, LeaseKeepAlive, LeaseWallet, Resour
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
-from recording_command_line import auto_authenticate
+from robot_utils import auto_authenticate
 import bosdyn.client.util
 import google.protobuf.timestamp_pb2
 
