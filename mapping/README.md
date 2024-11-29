@@ -10,6 +10,7 @@ The main changes in this script are:
 - Added a new command to navigate to a waypoint by label name. If multiple waypoints are present for a label, the robot will navigate to the waypoint that is closest to geometrical center of the matching waypoints for a label.
 - Added auto_authenticate function that will authenticate the robot when mapping and navigation scripts are run.
 - Added label_waypoints.py script that changes the waypoint annotation names to labels specified in the script ("kitchen", "living room", "bedroom", "bathroom", "hallway").
+- Added audio/text based assistant in /mappping/audio_control folder that can be used to control the robot using voice commands.
 
 # GraphNav and Recording Service Command Line Interfaces
 
