@@ -1,7 +1,7 @@
 import logging
 import time
 
-from project.robot_wrapper.robot_wrapper import SpotRobotWrapper, Velocity2D
+from robot_wrapper.robot_wrapper import SpotRobotWrapper, Velocity2D
 import numpy as np
 
 class Robot(SpotRobotWrapper):
@@ -12,11 +12,6 @@ class Robot(SpotRobotWrapper):
         # TODO: this part will be executed once during start up, any initialization should be done here
         if self.motors_on:
             self.stand_up()
-
-        time.sleep(1)
-
-        v = Velocity2D(1,0,0)
-        self.velocity_command(v)
 
         logging.info("Robot initialized")
 

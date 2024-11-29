@@ -92,7 +92,7 @@ class SpotRobotWrapper(ABC):
         self.password = "c037gcf6n93f"
 
         # Ensure interface can ping Spot
-        # ping_robot(self.hostname)
+        ping_robot(self.hostname)
 
         # Set up SDK
         bosdyn.client.util.setup_logging(config.verbose)
@@ -339,7 +339,7 @@ class SpotRobotWrapper(ABC):
 
             self.motion_client.robot_command(cmd, end_time_secs=time.time() + self.VELOCITY_CMD_DURATION)
 
-            # self.robot.logger.info("Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot))
+            self.robot.logger.info("Robot velocity cmd sent: v_x=${},v_y=${},v_rot${}".format(v_x, v_y, v_rot))
         else:
             self.robot.logger.warning(f"Motors are off! You can not command the robot!")
 
@@ -360,7 +360,7 @@ class SpotRobotWrapper(ABC):
         self.motion_client.robot_command(lease=None, command=cmd,
                                          end_time_secs=time.time() + self.TRAJECTORY_CMD_TIMEOUT)
 
-        # self.robot.logger.info("Robot pose cmd sent: p_x=${},p_y=${},theta${}".format(p_x, p_y, theta))
+        self.robot.logger.info("Robot pose cmd sent: p_x=${},p_y=${},theta${}".format(p_x, p_y, theta))
 
     def trajectory_command(self, trajectory):
         """
