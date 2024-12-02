@@ -49,9 +49,6 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
-# ignore all folders starting with loopClosure_test
-loopClosure_test*/
-downloaded_graph*/
-loop_closure*/
+# ignore all map folders
 *graph
-chair_graph_images*/
+*maps/

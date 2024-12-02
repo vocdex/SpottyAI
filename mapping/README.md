@@ -9,7 +9,7 @@ Development Kit License (20191101-BDSDK-SL).
 The main changes in this script are:
 - Added a new command to navigate to a waypoint by label name. If multiple waypoints are present for a label, the robot will navigate to the waypoint that is closest to geometrical center of the matching waypoints for a label.
 - Added auto_authenticate function that will authenticate the robot when mapping and navigation scripts are run.
-- Added label_waypoints.py script that changes the waypoint annotation names to labels specified in the script ("kitchen", "living room", "bedroom", "bathroom", "hallway").
+- Added label_waypoints.py script that annotates the waypoints in the graph with the names of the places or objects we want to navigate to. Supported labeling methods are manual and CLIP-based automatic labeling.
 - Added audio/text based assistant in /mappping/audio_control folder that can be used to control the robot using voice commands.
 
 # GraphNav and Recording Service Command Line Interfaces
@@ -190,15 +190,41 @@ For example the following waypoint ids are labeled as follows:
 - `zigzag-filly-8ieN.xz8c9pL5tDZtQYW+w==` is labeled as `kitchen`
 - `unread-beagle-vQfl7NrKVhHPOUoos+ffIg==` is labeled as `living room`
 - `hammy-skink-iKQI6hGQ.fCBWXJy6mmjqg==` is labeled as `bedroom`
-#### Manually Label Waypoints
-To label the entire graph with a manually created label dictionary, run the `label_waypoints.py` script. This script will change the waypoint annotation names to labels specified in the script ("kitchen", "living room", "bedroom", "bathroom", "hallway").
-```bash
-python label_waypoints.py --graph_file_path <path_to_graph_file> --output_dir <output_dir> --output_file_name <output_file_name>
+
+### Labelling Waypoints
+`label_waypoints.py` script provides advanced waypoint labeling capabilities for GraphNav maps, supporting both manual and AI-assisted annotation methods.
+#### Features
+- Two annotation methods: Manual and CLIP-based
+- Multiprocessing for improved performance
+- Flexible CLIP model selection
+
+#### Prerequisites
+Install the required dependencies using the following command:
 ```
-Example:
-```bash
-python label_waypoint.py ./loop_closure/graph 
+pip install transformers torch
 ```
-Note that you need to change the **custom_labels** dictionary in the script to match the labels you want to use.
-#### Automatically Label Waypoints
-Not ready. The goal here is to automatically label the waypoints in the map with the names of the places or objects we want to navigate to. This can be done by using a machine learning model to recognize the places or objects in the map and label the waypoints accordingly.
+#### Usage
+##### Manual Annotation
+```
+python label_waypoints.py --map_path /path/to/recorded/map --label_method manual --label_file /path/to/csv/label_file
+```
+- `--map_path`: Path to the recorded map
+- `--label_method`: Annotation method (manual or clip)
+- `--label_file`: Path to the CSV file containing the waypoint labels
+
+##### CLIP-based Annotation
+```
+python label_waypoints.py --map_path /path/to/recorded/map --label_method clip --parallel --prompts kitchen hallway staircase entrance office
+```
+- `--map_path`: Path to the recorded map
+- `--label_method`: Annotation method (manual or clip)
+- `--parallel`: Enable multiprocessing for improved performance
+- `--prompts`: List of prompts to use for CLIP-based annotation(e.g., kitchen, hallway, staircase, entrance, office)
+
+#### Viewing the Labels
+To view the labeled map, use the `view_map.py` script with the map file:
+
+
+```
+python view_map.py /path/to/recorded/map
+```
