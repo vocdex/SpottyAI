@@ -359,7 +359,7 @@ class GraphNavInterface(object):
             # Extract 3D position coordinates
             x = waypoint.waypoint_tform_ko.position.x
             y = waypoint.waypoint_tform_ko.position.y
-            z = waypoint.   waypoint_tform_ko.position.z
+            z = waypoint.waypoint_tform_ko.position.z
             
             # Calculate total Euclidean distance to all other waypoints
             distances = [
@@ -384,10 +384,8 @@ class GraphNavInterface(object):
             destination_waypoint = matching_waypoints[0].id
         matching_waypoints = [waypoint.id for waypoint in matching_waypoints]
         print(f"The following waypoints matched your query: {matching_waypoints}")
-        
         print(f"Destination waypoint: {destination_waypoint}")
 
-        
         # Lease and power management
         self._lease = self._lease_wallet.get_lease()
         if not self.toggle_power(should_power_on=True):
