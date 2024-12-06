@@ -87,11 +87,9 @@ class BaseWaypointAnnotationUpdater:
         :return: Path to the saved graph file
         :raises AnnotationError: If saving fails
         """
-        # Determine the output directory
         if output_dir is None:
             output_dir = os.path.dirname(self.graph_file_path)
         
-        # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
         try:
@@ -105,7 +103,6 @@ class BaseWaypointAnnotationUpdater:
             # Path for the new labeled graph (default name 'graph')
             labeled_graph_path = os.path.join(output_dir, 'graph')
             
-            # Save the updated graph
             with open(labeled_graph_path, 'wb') as graph_file:
                 graph_file.write(self.graph.SerializeToString())
             
@@ -428,5 +425,11 @@ if __name__ == "__main__":
     arg_parser.add_argument("--parallel", action="store_true", help="Enable multiprocessing")
     
     args = arg_parser.parse_args()
+    # Time the main function
+    import time
+    start_time = time.perf_counter()
     main(args)
+    end_time = time.perf_counter()
+    print(f"Annotation process completed in {end_time - start_time:.2f} seconds.")
+
 
