@@ -48,45 +48,59 @@ audio = pyaudio.PyAudio()
 # Chat history
 chat_history = []
 stop_recording_queue = queue.Queue()
-
 def record_audio(max_recording_time=5, stop_queue=None):
     """
-    Records audio from the microphone with more flexible stopping options.
+    Records audio from the microphone with progress indication.
     
     :param max_recording_time: Maximum recording duration in seconds
     :param stop_queue: Optional queue to signal stopping the recording
     :return: Path to the recorded audio file
     """
-    print("Recording...")
+    print("\nRecording...")
     stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
     frames = []
     
     start_time = time.time()
+    progress_thread = None
+    progress_stop = threading.Event()
+    
+    def show_recording_progress():
+        for i in range(max_recording_time):
+            if progress_stop.is_set():
+                break
+            print(f"\rRecording: {'●' * (i+1)}{'○' * (max_recording_time-i-1)} {i+1}s/{max_recording_time}s", end='', flush=True)
+            time.sleep(1)
     
     try:
+        # Start progress indication in a separate thread
+        progress_thread = threading.Thread(target=show_recording_progress)
+        progress_thread.start()
+        
         while True:
             # Check if we've exceeded max recording time
             if time.time() - start_time > max_recording_time:
-                print("Max recording time reached.")
+                print("\nMax recording time reached.")
                 break
             
             # Check if stop is signaled via queue
             if stop_queue and not stop_queue.empty():
                 stop_queue.get()
-                print("Recording stopped by signal.")
+                print("\nRecording stopped by signal.")
                 break
             
             # Read audio data
-            data = stream.read(CHUNK)
+            data = stream.read(CHUNK, exception_on_overflow=False)
             frames.append(data)
             
-            # Optional: Add a small sleep to prevent tight looping
-            time.sleep(0.01)
-    
     except Exception as e:
-        print(f"Recording error: {e}")
+        print(f"\nRecording error: {e}")
     
     finally:
+        # Stop progress indication
+        progress_stop.set()
+        if progress_thread:
+            progress_thread.join()
+        
         # Clean up audio stream
         stream.stop_stream()
         stream.close()
@@ -99,12 +113,12 @@ def record_audio(max_recording_time=5, stop_queue=None):
                 wf.setframerate(RATE)
                 wf.writeframes(b''.join(frames))
             
-            print(f"Recording saved. Duration: {time.time() - start_time:.2f} seconds")
+            print(f"\nRecording saved. Duration: {time.time() - start_time:.2f} seconds")
             return TEMP_FILE
         else:
-            print("No audio recorded.")
+            print("\nNo audio recorded.")
             return None
-
+        
 def transcribe_audio_openai(file_path):
     """Transcribes audio using OpenAI Whisper API."""
     if not OPENAI_API_KEY:
@@ -274,7 +288,7 @@ def play_modern_beep(type="start", volume=0.3, blocking=True):
     except Exception as e:
         print(f"Error playing notification sound: {e}")
 
-        
+
 def text_to_speech(text,tts):
     """
     Converts text to speech using OpenAI TTS API.
@@ -429,47 +443,56 @@ class WakeWordConversationAgent:
                 # Wait for wake word detection
                 self.wake_word_queue.get(timeout=1)
                 
-                # Play start recording beep (higher pitch)
-                play_modern_beep(type="start", volume=1.0)
+                # Play start recording sound
+                play_modern_beep(type="start", volume=0.3)
+                print("\nWake word detected! Starting to listen...")
                 
                 # Stop the PvRecorder to prevent audio overlap
                 self.stop_detection_event.set()
                 # Give some time for the recorder to stop
                 time.sleep(0.5)
             
-                # Record audio with 10-second max time and optional stop queue
-                record_audio(max_recording_time=10, stop_queue=stop_recording_queue)
+                # Record audio with progress indication
+                audio_file = record_audio(max_recording_time=5, stop_queue=stop_recording_queue)
                 
-                # Play end recording beep (lower pitch)
-                play_modern_beep(type="end", volume=1.0)
+                if audio_file:
+                    # Play end recording sound
+                    play_modern_beep(type="end", volume=0.3)
+                    
+                    # Clear the line after recording
+                    print("\n", end='')
+                    
+                    # Transcribe audio
+                    print("Transcribing...", end='', flush=True)
+                    transcribe_func = (
+                        transcribe_audio_local if self.transcription_method == 'local' 
+                        else transcribe_audio_openai
+                    )
+                    transcribed_text = (
+                        transcribe_func(TEMP_FILE, self.local_whisper_model) 
+                        if self.transcription_method == 'local' 
+                        else transcribe_func(TEMP_FILE)
+                    )
+                    print("\r" + " " * 20 + "\r", end='')  # Clear "Transcribing..." text
+                    print(f">> You said: {transcribed_text}")
+                    
+                    # Generate chat response
+                    print("Thinking...", end='', flush=True)
+                    chat_func = (
+                        chat_with_local_llama if self.inference_method == 'local' 
+                        else chat_with_openai
+                    )
+                    chat_response = (
+                        chat_func(transcribed_text, self.local_llama_model) 
+                        if self.inference_method == 'local' 
+                        else chat_func(transcribed_text)
+                    )
+                    print("\r" + " " * 20 + "\r", end='')  # Clear "Thinking..." text
+                    print(f"🤖 Assistant: {chat_response}")
+                    
+                    # Text to speech
+                    text_to_speech(chat_response,tts=self.tts)
                 
-                # Transcribe audio
-                transcribe_func = (
-                    transcribe_audio_local if self.transcription_method == 'local' 
-                    else transcribe_audio_openai
-                )
-                transcribed_text = (
-                    transcribe_func(TEMP_FILE, self.local_whisper_model) 
-                    if self.transcription_method == 'local' 
-                    else transcribe_func(TEMP_FILE)
-                )
-                print(f">> You said: {transcribed_text}")
-                
-                # Generate chat response
-                chat_func = (
-                    chat_with_local_llama if self.inference_method == 'local' 
-                    else chat_with_openai
-                )
-                chat_response = (
-                    chat_func(transcribed_text, self.local_llama_model) 
-                    if self.inference_method == 'local' 
-                    else chat_func(transcribed_text)
-                )
-                print(f"🦙 Assistant said: {chat_response}")
-                
-                # Text to speech
-                text_to_speech(chat_response, tts=self.tts)
-
                 # Reset for next wake word detection
                 self.stop_detection_event.clear()
                 try:
@@ -481,10 +504,11 @@ class WakeWordConversationAgent:
                     device_index=self.audio_device_index, 
                     frame_length=self.porcupine.frame_length
                 )
-                 # Restart wake word detection
+                # Restart wake word detection
                 self.wake_word_thread = threading.Thread(target=self._wake_word_detection_loop)
                 self.wake_word_thread.daemon = True
                 self.wake_word_thread.start()
+                
             except queue.Empty:
                 # No wake word detected, continue listening
                 continue
