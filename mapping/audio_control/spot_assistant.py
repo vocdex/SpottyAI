@@ -10,6 +10,9 @@ import argparse
 import subprocess
 import time
 import pvporcupine
+import numpy as np
+from scipy import signal
+import sounddevice as sd
 from pvrecorder import PvRecorder
 import platform
 from system_prompts import  system_prompt_robin
@@ -201,23 +204,142 @@ def chat_with_local_llama(user_input, model_path="./models/7B/llama-model.gguf")
     
     return chat_response
 
-def text_to_speech(text):
-    """Converts text to speech using system-specific method."""
-    system = platform.system()
+# TTS functions
+
+def create_modern_beep(type="start", volume=0.3):
+    """
+    Create a modern notification sound similar to Alexa/Siri.
     
-    if system == "Darwin":  # macOS
-        # Use say command with different voices
-        voices = [ "Samantha"]
-        voice = voices[len(chat_history) % len(voices)]  # Cycle through voices
-        subprocess.run(["say", "-v", voice, text])
-    elif system == "Linux":
-        # Fallback to espeak on Linux
-        subprocess.run(["espeak", text])
-    elif system == "Windows":
-        # Fallback to PowerShell Say-Speech on Windows
-        subprocess.run(["powershell", "-Command", f"Add-Type -AssemblyName System.speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak('{text}')"])
-    else:
-        print("Text-to-speech not supported on this system.")
+    :param type: "start" for recording start sound, "end" for recording end sound
+    :param volume: Volume of the sound (0.0 to 1.0)
+    :return: NumPy array of audio samples
+    """
+    sample_rate = 44100
+    
+    if type == "start":
+        # Create an upward sweep
+        duration = 0.15
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        
+        # Main frequencies for the sweep
+        f1, f2 = 880, 1760  # A5 to A6
+        sweep = volume * (
+            np.sin(2 * np.pi * (f1 + (f2-f1) * t/duration) * t) +
+            0.3 * np.sin(4 * np.pi * (f1 + (f2-f1) * t/duration) * t)
+        )
+        
+        # Smooth envelope
+        envelope = np.exp(-4 * (t - duration/2) ** 2 / (duration/2) ** 2)
+        
+    else:  # end sound
+        # Create a downward sweep
+        duration = 0.15
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        
+        # Main frequencies for the sweep
+        f1, f2 = 1760, 880  # A6 to A5
+        sweep = volume * (
+            np.sin(2 * np.pi * (f1 + (f2-f1) * t/duration) * t) +
+            0.3 * np.sin(4 * np.pi * (f1 + (f2-f1) * t/duration) * t)
+        )
+        
+        # Smooth envelope with faster decay
+        envelope = np.exp(-6 * (t - duration/4) ** 2 / (duration/2) ** 2)
+    
+    # Apply envelope and smoothing
+    sound = (sweep * envelope).astype(np.float32)
+    
+    # Apply a gentle low-pass filter
+    from scipy import signal
+    b, a = signal.butter(2, 0.1)
+    sound = signal.filtfilt(b, a, sound)
+    
+    return sound
+
+def play_modern_beep(type="start", volume=0.3, blocking=True):
+    """
+    Play a modern notification sound.
+    
+    :param type: "start" for recording start sound, "end" for recording end sound
+    :param volume: Volume of the sound (0.0 to 1.0)
+    :param blocking: Whether to block until sound is finished
+    """
+    try:
+        beep = create_modern_beep(type, volume)
+        if blocking:
+            sd.play(beep, samplerate=44100)
+            sd.wait()
+        else:
+            sd.play(beep, samplerate=44100)
+    except Exception as e:
+        print(f"Error playing notification sound: {e}")
+
+        
+def text_to_speech(text,tts):
+    """
+    Converts text to speech using OpenAI TTS API.
+    
+    :param text: Text to be converted to speech
+    :return: Path to the generated audio file
+    """
+    if not OPENAI_API_KEY or tts != 'openai':
+        print("OpenAI API key is not set. Falling back to system TTS.")
+        # Fallback to existing system TTS method
+        system = platform.system()
+        
+        if system == "Darwin":  # macOS
+            voices = ["Samantha"]
+            voice = voices[len(chat_history) % len(voices)]
+            subprocess.run(["say", "-v", voice, text])
+        elif system == "Linux":
+            subprocess.run(["espeak", text])
+        elif system == "Windows":
+            subprocess.run(["powershell", "-Command", f"Add-Type -AssemblyName System.speech; $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; $speak.Speak('{text}')"])
+        else:
+            print("Text-to-speech not supported on this system.")
+        return None
+
+    # OpenAI TTS API endpoint
+    url = "https://api.openai.com/v1/audio/speech"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Payload for TTS request
+    payload = {
+        "model": "tts-1",  # You can also use "tts-1-hd" for higher quality
+        "input": text,
+        "voice": "shimmer"  # Options: alloy, echo, fable, onyx, nova, shimmer
+    }
+    
+    # Output file path
+    output_file = "tts_output.mp3"
+    
+    try:
+        # Make the API request
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        
+        # Save the audio file
+        with open(output_file, "wb") as audio_file:
+            audio_file.write(response.content)
+        
+        # Play the audio file using system-specific method
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            subprocess.run(["afplay", output_file])
+        elif system == "Linux":
+            subprocess.run(["aplay", output_file])
+        elif system == "Windows":
+            subprocess.run(["start", output_file], shell=True)
+        
+        return output_file
+    
+    except Exception as e:
+        print(f"OpenAI TTS error: {e}")
+        # Fallback to system TTS if OpenAI TTS fails
+        return None
 
 
 
@@ -229,6 +351,7 @@ class WakeWordConversationAgent:
                  inference_method='openai', 
                  local_whisper_model='tiny', 
                  local_llama_model=None,
+                 tts='openai',
                  audio_device_index=-1):
         """
         Initialize the Conversation Agent with Wake Word Detection.
@@ -239,6 +362,7 @@ class WakeWordConversationAgent:
         :param inference_method: 'openai' or 'local'
         :param local_whisper_model: Size of local Whisper model
         :param local_llama_model: Path to local LLaMA model
+        :param tts: Text-to-speech method: 'openai' or 'local'
         :param audio_device_index: Audio input device index
         """
         # Wake Word Detection Setup
@@ -258,6 +382,7 @@ class WakeWordConversationAgent:
         self.inference_method = inference_method
         self.local_whisper_model = local_whisper_model
         self.local_llama_model = local_llama_model
+        self.tts = tts
         
         # Threading and control
         self.is_running = False
@@ -304,13 +429,19 @@ class WakeWordConversationAgent:
                 # Wait for wake word detection
                 self.wake_word_queue.get(timeout=1)
                 
+                # Play start recording beep (higher pitch)
+                play_modern_beep(type="start", volume=1.0)
+                
                 # Stop the PvRecorder to prevent audio overlap
                 self.stop_detection_event.set()
                 # Give some time for the recorder to stop
                 time.sleep(0.5)
             
-                # Record audio with 5-second max time and optional stop queue
-                record_audio(max_recording_time=5, stop_queue=stop_recording_queue)
+                # Record audio with 10-second max time and optional stop queue
+                record_audio(max_recording_time=10, stop_queue=stop_recording_queue)
+                
+                # Play end recording beep (lower pitch)
+                play_modern_beep(type="end", volume=1.0)
                 
                 # Transcribe audio
                 transcribe_func = (
@@ -337,7 +468,7 @@ class WakeWordConversationAgent:
                 print(f"🦙 Assistant said: {chat_response}")
                 
                 # Text to speech
-                text_to_speech(chat_response)
+                text_to_speech(chat_response, tts=self.tts)
 
                 # Reset for next wake word detection
                 self.stop_detection_event.clear()
@@ -419,10 +550,11 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Wake Word Conversation Agent")
     parser.add_argument('--keyword-model', required=False, default="./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn", help='Path to wake word model')
-    parser.add_argument('--transcribe-method', choices=['openai', 'local'], default='openai')
+    parser.add_argument('--transcribe', choices=['openai', 'local'], default='openai')
     parser.add_argument('--whisper-model', choices=['tiny', 'base', 'small', 'medium', 'large'], default='tiny')
-    parser.add_argument('--inference-method', choices=['openai', 'local'], default='openai')
+    parser.add_argument('--chat', choices=['openai', 'local'], default='openai')
     parser.add_argument('--llama-model', type=str, default="./models/mistral-7b-instruct-v0.1.Q4_K_S.gguf")
+    parser.add_argument('--tts', type=str, choices=['openai', 'local'], default='openai')
     parser.add_argument('--audio-device-index', type=int, default=-1)
     
     args = parser.parse_args()
@@ -431,10 +563,11 @@ def main():
     agent = WakeWordConversationAgent(
         access_key=PICOVOICE_ACCESS_KEY,
         keyword_path=get_abs_path(args.keyword_model),
-        transcription_method=args.transcribe_method,
-        inference_method=args.inference_method,
+        transcription_method=args.transcribe,
+        inference_method=args.chat,
         local_whisper_model=args.whisper_model,
         local_llama_model=get_abs_path(args.llama_model),
+        tts = args.tts,
         audio_device_index=args.audio_device_index
     )
     
