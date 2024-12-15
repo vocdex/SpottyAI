@@ -418,7 +418,7 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('path', type=str, help='Map to draw.')
+    parser.add_argument('path', type=str, help='Path to map directory.')
     parser.add_argument('-a', '--anchoring', action='store_true',
                         help='Draw the map according to the anchoring (in seed frame).')
     options = parser.parse_args(argv)

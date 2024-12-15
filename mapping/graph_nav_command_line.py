@@ -35,7 +35,7 @@ import bosdyn.client.util
 import google.protobuf.timestamp_pb2
 
 
-from utils import graph_nav_util
+from utils import graph_nav_utils
 
 
 class GraphNavInterface(object):
@@ -128,7 +128,7 @@ class GraphNavInterface(object):
             # If no waypoint id is given as input, then return without initializing.
             print("No waypoint specified to initialize to.")
             return
-        destination_waypoint = graph_nav_util.find_unique_waypoint_id(
+        destination_waypoint = graph_nav_utils.find_unique_waypoint_id(
             args[0][0], self._current_graph, self._current_annotation_name_to_wp_id)
         if not destination_waypoint:
             # Failed to find the unique waypoint id.
@@ -162,7 +162,7 @@ class GraphNavInterface(object):
         localization_id = self._graph_nav_client.get_localization_state().localization.waypoint_id
 
         # Update and print waypoints and edges
-        self._current_annotation_name_to_wp_id, self._current_edges = graph_nav_util.update_waypoints_and_edges(
+        self._current_annotation_name_to_wp_id, self._current_edges = graph_nav_utils.update_waypoints_and_edges(
             graph, localization_id)
 
     def _upload_graph_and_snapshots(self, *args):
@@ -292,7 +292,7 @@ class GraphNavInterface(object):
             return
 
         self._lease = self._lease_wallet.get_lease()
-        destination_waypoint = graph_nav_util.find_unique_waypoint_id(
+        destination_waypoint = graph_nav_utils.find_unique_waypoint_id(
             args[0][0], self._current_graph, self._current_annotation_name_to_wp_id)
         if not destination_waypoint:
             # Failed to find the appropriate unique waypoint id for the navigation command.
@@ -429,7 +429,7 @@ class GraphNavInterface(object):
             return
         waypoint_ids = args[0]
         for i in range(len(waypoint_ids)):
-            waypoint_ids[i] = graph_nav_util.find_unique_waypoint_id(
+            waypoint_ids[i] = graph_nav_utils.find_unique_waypoint_id(
                 waypoint_ids[i], self._current_graph, self._current_annotation_name_to_wp_id)
             if not waypoint_ids[i]:
                 # Failed to find the unique waypoint id.

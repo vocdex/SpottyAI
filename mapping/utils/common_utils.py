@@ -3,6 +3,12 @@ from typing import List, Dict
 
 
 def get_map_paths(map_path: str) -> List[str]:
+    # Allow relative paths
+    if not os.path.isabs(map_path):
+        map_path = os.path.abspath(map_path)
+    # Check if the path exists
+    if not os.path.exists(map_path):
+        raise FileNotFoundError(f"Path {map_path} does not exist.")
     graph_file_path = os.path.join(map_path, 'graph')
     snapshot_dir = os.path.join(map_path, 'waypoint_snapshots')
     output_graph_path = os.path.join(map_path)
