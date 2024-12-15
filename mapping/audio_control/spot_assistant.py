@@ -48,6 +48,9 @@ audio = pyaudio.PyAudio()
 # Chat history
 chat_history = []
 stop_recording_queue = queue.Queue()
+
+
+
 def record_audio(max_recording_time=5, stop_queue=None):
     """
     Records audio from the microphone with progress indication.
