@@ -409,15 +409,20 @@ class WakeWordConversationAgent:
         
         print("Conversation Agent stopped.")
     
+def get_abs_path(relative_path:str):
+    """This function is used to convert relative path to absolute path."""
+    if not os.path.isabs(relative_path):
+        return os.path.abspath(relative_path)
+    return relative_path
 
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Wake Word Conversation Agent")
-    parser.add_argument('--keyword-model', required=True, default="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/mapping/audio_control/hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn", help='Path to wake word model')
+    parser.add_argument('--keyword-model', required=False, default="./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn", help='Path to wake word model')
     parser.add_argument('--transcribe-method', choices=['openai', 'local'], default='openai')
     parser.add_argument('--whisper-model', choices=['tiny', 'base', 'small', 'medium', 'large'], default='tiny')
     parser.add_argument('--inference-method', choices=['openai', 'local'], default='openai')
-    parser.add_argument('--llama-model', type=str, default="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/mapping/audio_control/models/mistral-7b-instruct-v0.1.Q4_K_S.gguf")
+    parser.add_argument('--llama-model', type=str, default="./models/mistral-7b-instruct-v0.1.Q4_K_S.gguf")
     parser.add_argument('--audio-device-index', type=int, default=-1)
     
     args = parser.parse_args()
@@ -425,11 +430,11 @@ def main():
     # Initialize and start the conversation agent
     agent = WakeWordConversationAgent(
         access_key=PICOVOICE_ACCESS_KEY,
-        keyword_path=args.keyword_model,
+        keyword_path=get_abs_path(args.keyword_model),
         transcription_method=args.transcribe_method,
         inference_method=args.inference_method,
         local_whisper_model=args.whisper_model,
-        local_llama_model=args.llama_model,
+        local_llama_model=get_abs_path(args.llama_model),
         audio_device_index=args.audio_device_index
     )
     
