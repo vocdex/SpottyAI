@@ -3,11 +3,12 @@ import cv2
 import argparse
 import numpy as np
 from scipy import ndimage
+import matplotlib.pyplot as plt
 from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import map_pb2
 from utils import get_map_paths
 
-# Rotation angles for different camera sources (similar to previous script)
+# Rotation angles for different camera sources
 ROTATION_ANGLE = {
     'back_fisheye_image': 0,
     'frontleft_fisheye_image': -90,
@@ -15,23 +16,24 @@ ROTATION_ANGLE = {
     'left_fisheye_image': 0,
     'right_fisheye_image': 180
 }
-camera_sources = ['back_depth', 'back_depth_in_visual_frame', 'back_fisheye_image', 'frontleft_depth', 'frontleft_depth_in_visual_frame', 'frontleft_fisheye_image', 'frontright_depth', 'frontright_depth_in_visual_frame', 'frontright_fisheye_image', 'left_depth', 'left_depth_in_visual_frame', 'left_fisheye_image', 'right_depth', 'right_depth_in_visual_frame', 'right_fisheye_image']
-depth_camera_sources = ['back_depth', 'frontleft_depth', 'frontright_depth', 'left_depth', 'right_depth']
+
+# Camera source categories
+DEPTH_CAMERA_SOURCES = ['back_depth', 'frontleft_depth', 'frontright_depth', 'left_depth', 'right_depth']
+FRONT_CAMERA_SOURCES = ['frontleft_fisheye_image', 'frontright_fisheye_image']
 
 
-def convert_image_from_snapshot(image_data,image_source, auto_rotate=True):
+def convert_image_from_snapshot(image_data, image_source, auto_rotate=True):
     """
     Convert an image from a GraphNav waypoint snapshot to an OpenCV image.
-    
+
     :param image_data: Image data from WaypointSnapshot
+    :param image_source: Name of the image source
     :param auto_rotate: Whether to automatically rotate images based on camera source
     :return: OpenCV image, file extension
     """
-    # Determine pixel format and number of channels
-    num_channels = 1  # Default to 1 channel
-    dtype = np.uint8  # Default to 8-bit unsigned integer
+    num_channels = 1
+    dtype = np.uint8
 
-    # Determine pixel format
     if image_data.pixel_format == image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
         dtype = np.uint16
         extension = ".png"
@@ -47,115 +49,129 @@ def convert_image_from_snapshot(image_data,image_source, auto_rotate=True):
             dtype = np.uint16
         extension = ".jpg"
 
-    # Convert image data to numpy array
     img = np.frombuffer(image_data.data, dtype=dtype)
 
-    # Reshape or decode the image
     if image_data.format == image_pb2.Image.FORMAT_RAW:
         try:
-            # Attempt to reshape array into rows x cols x channels
             img = img.reshape((image_data.rows, image_data.cols, num_channels))
         except ValueError:
-            # If reshaping fails, use OpenCV decode
             img = cv2.imdecode(img, -1)
     else:
         img = cv2.imdecode(img, -1)
 
-    # Auto-rotate if requested and source name is known
     if auto_rotate:
-        try:
-            rotation_angle = ROTATION_ANGLE.get(image_source, 0)
-            img = ndimage.rotate(img, rotation_angle)
-        except KeyError:
-            print(f"Warning: No rotation defined for source {image_source}")
+        rotation_angle = ROTATION_ANGLE.get(image_source, 0)
+        img = ndimage.rotate(img, rotation_angle)
 
     return img, extension
+
 
 def load_local_graph_and_snapshot(graph_file_path, snapshot_dir):
     """
     Load a locally saved graph and its associated waypoint snapshots.
-    
+
     :param graph_file_path: Path to the saved graph file.
     :param snapshot_dir: Directory containing the waypoint snapshot files.
     :return: Graph and a dictionary of snapshot IDs to snapshot objects.
     """
-    # Load the graph
     graph = map_pb2.Graph()
     with open(graph_file_path, 'rb') as graph_file:
         graph.ParseFromString(graph_file.read())
     print(f"Loaded graph with {len(graph.waypoints)} waypoints.")
 
-    # Load all snapshots
     snapshots = {}
-    for i,waypoint in enumerate(graph.waypoints):
-        print(waypoint.annotations.name)
-        
-        print(f"Processing waypoint {i+1}/{len(graph.waypoints)}")
-        # print("Processing waypoint:", waypoint.id)
-        # Snapshot ID is the unique identifier for the snapshot
+    for waypoint in graph.waypoints:
         snapshot_id = waypoint.snapshot_id
-        print("Snapshot ID:", snapshot_id)
         snapshot_file_path = os.path.join(snapshot_dir, f"{snapshot_id}")
-        
+
         if os.path.exists(snapshot_file_path):
             snapshot = map_pb2.WaypointSnapshot()
             with open(snapshot_file_path, 'rb') as snapshot_file:
                 snapshot.ParseFromString(snapshot_file.read())
-            snapshots[snapshot_id] = snapshot
-
-            # Process and display images from this snapshot
-            process_snapshot_images(snapshot)
+            snapshots[waypoint.id] = snapshot
 
     return graph, snapshots
 
-def process_snapshot_images(snapshot, display=True):
+
+def process_snapshot_images(snapshot, waypoint_id):
     """
-    Process and optionally display images from a waypoint snapshot.
-    
+    Process images from a waypoint snapshot and prepare for batch display.
+
     :param snapshot: WaypointSnapshot object
-    :param display: Whether to display images
-    :return: List of processed images
+    :param waypoint_id: The ID of the waypoint
+    :return: List of (image, title) tuples
     """
     processed_images = []
-    
-    # Access images in the snapshot
-    image_response = snapshot.images
-    for image in image_response:
-        # Get the image data
+
+    for image in snapshot.images:
         image_source = image.source.name
-        # Ignore depth images for now
-        if image_source in depth_camera_sources:
+        if image_source in DEPTH_CAMERA_SOURCES or image_source not in FRONT_CAMERA_SOURCES:
             continue
+
         image_data = image.shot.image
         try:
-            # Convert image to OpenCV format
-            opencv_image, _ = convert_image_from_snapshot(image_data,image_source)
-            processed_images.append(opencv_image)
-            
-            # Display image if requested
-            if display:
-                # Use the source name as the window title
-                window_name = image_source
-                cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-                cv2.imshow(window_name, opencv_image)   
-                # pause for a second
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
-        
+            opencv_image, _ = convert_image_from_snapshot(image_data, image_source)
+            if image_source == 'frontleft_fisheye_image':
+                image_source = "left"
+            elif image_source == 'frontright_fisheye_image':
+                image_source = "right"
+            title = f"{waypoint_id}\n{image_source}"
+            processed_images.append((opencv_image, title))
         except Exception as e:
-            print(f"Error processing image: {e}")
-    
+            print(f"Error processing image from {image_source}: {e}")
+
     return processed_images
 
-# Example usage
-def main(args):
-    
-    graph_file_path, snapshot_dir, _ = get_map_paths(args.map_path)
 
+def display_images_in_batches(images, grid_size=6):
+    """
+    Display images in grid batches using matplotlib.
+
+    :param images: List of (image, title) tuples
+    :param grid_size: Size of the grid (default is 6x6)
+    """
+    batch_size = grid_size * grid_size
+
+    for i in range(0, len(images), batch_size):
+        batch = images[i:i + batch_size]
+        num_images = len(batch)
+        fig, axes = plt.subplots(grid_size, grid_size, figsize=(15, 15))
+
+        axes = axes.flatten()
+
+        for j, ax in enumerate(axes):
+            if j < num_images:
+                img, title = batch[j]
+                ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                ax.set_title(title, fontsize=5)
+                ax.axis('off')
+            else:
+                ax.axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+
+def main(args):
+    graph_file_path, snapshot_dir, _ = get_map_paths(args.map_path)
     graph, snapshots = load_local_graph_and_snapshot(graph_file_path, snapshot_dir)
+
+    if args.waypoint_id:
+        if args.waypoint_id in snapshots:
+            images = process_snapshot_images(snapshots[args.waypoint_id], args.waypoint_id)
+            display_images_in_batches(images, grid_size=1)
+        else:
+            print(f"Waypoint ID {args.waypoint_id} not found.")
+    else:
+        all_images = []
+        for waypoint_id, snapshot in snapshots.items():
+            all_images.extend(process_snapshot_images(snapshot, waypoint_id))
+        display_images_in_batches(all_images)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--map_path', help='Path to the map directory')
+    parser.add_argument('--map_path', required=True, help='Path to the map directory')
+    parser.add_argument('--waypoint_id', help='Specific waypoint ID to display')
     args = parser.parse_args()
-    main()
+    main(args)
