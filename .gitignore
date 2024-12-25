@@ -56,3 +56,6 @@ docs/_build/
 *.jpg
 *.env
 *.wav
+*/vector_db
+*/vector_db_chair
+*.mp3
