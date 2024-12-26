@@ -145,7 +145,9 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         text_prompts: Optional[List[str]] = None,
         clip_model: str = "openai/clip-vit-base-patch32",
         use_multiprocessing: bool = True,
-        load_clip: bool = True  # New parameter to control CLIP model loading
+        load_clip: bool = True,  # New parameter to control CLIP model loading
+        confidence_threshold: float = 0.5,
+        neighbor_threshold: float = 0.5
     ):
         """
         Initialize the CLIP annotation updater with more flexibility.
@@ -164,10 +166,13 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         
         self.snapshot_dir = snapshot_dir
         self.use_multiprocessing = use_multiprocessing
+        self.confidence_threshold = confidence_threshold
+        self.neighbor_threshold = neighbor_threshold
+        
         
         # Default prompts with more comprehensive locations
         self.text_prompts = text_prompts or [
-            "kitchen", "office", "hallway",
+            "kitchen", "office", "hallway"
         ]
         # Rotation angles for different camera sources
         self.ROTATION_ANGLE = {
@@ -207,65 +212,165 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
                 self.processor = CLIPProcessor.from_pretrained(clip_model)
             except Exception as e:
                 raise AnnotationError(f"Failed to load CLIP model: {e}")
+            
+
+    def _get_neighbor_waypoints(self, waypoint_id: str) -> List[str]:
+        """Get IDs of neighboring waypoints connected by edges."""
+        neighbors = []
+        for edge in self.graph.edges:
+            if edge.id.from_waypoint == waypoint_id:
+                neighbors.append(edge.id.to_waypoint)
+            elif edge.id.to_waypoint == waypoint_id:
+                neighbors.append(edge.id.from_waypoint)
+        return neighbors
+
+    def _validate_annotation(
+        self, 
+        waypoint_id: str, 
+        predicted_label: str,
+        confidence: float,
+        waypoint_labels: Dict[str, str]
+    ) -> str:
+        """Validate waypoint annotation based on neighboring waypoints."""
+        # If confidence is high enough, keep the prediction
+        if confidence >= self.confidence_threshold:
+            return predicted_label
+
+        neighbors = self._get_neighbor_waypoints(waypoint_id)
+        if not neighbors:
+            return predicted_label
+
+        neighbor_labels = [
+            waypoint_labels[n] for n in neighbors 
+            if n in waypoint_labels
+        ]
+        
+        if not neighbor_labels:
+            return predicted_label
+
+        label_counts = {}
+        for label in neighbor_labels:
+            label_counts[label] = label_counts.get(label, 0) + 1
+
+        majority_label = max(label_counts.items(), key=lambda x: x[1])[0]
+        majority_ratio = label_counts[majority_label] / len(neighbor_labels)
+        
+        if (majority_ratio >= self.neighbor_threshold and 
+            majority_label != predicted_label):
+            logger.info(
+                f"Correcting waypoint {waypoint_id} from {predicted_label} "
+                f"to {majority_label} (confidence: {confidence:.2f}, "
+                f"neighbor ratio: {majority_ratio:.2f})"
+            )
+            return majority_label
+            
+        return predicted_label
 
     def _process_single_waypoint(
         self, 
         waypoint_data: Tuple[str, str]
-    ) -> Tuple[str, str]:
-        """
-        Process a single waypoint for classification.
-        
-        :param waypoint_data: Tuple of (waypoint_id, snapshot_id)
-        :return: Tuple of (waypoint_id, classified_location)
-        """
+    ) -> Tuple[str, str, float]:
+        """Process a single waypoint and return ID, label, and confidence."""
         waypoint_id, snapshot_id = waypoint_data
         snapshot_file_path = os.path.join(self.snapshot_dir, snapshot_id)
         
         if not os.path.exists(snapshot_file_path):
             logger.warning(f"Snapshot not found: {snapshot_file_path}")
-            return waypoint_id, "unknown"
+            return waypoint_id, "unknown", 0.0
         
         try:
-            # Load snapshot
             snapshot = map_pb2.WaypointSnapshot()
             with open(snapshot_file_path, 'rb') as snapshot_file:
                 snapshot.ParseFromString(snapshot_file.read())
             
-            location = self.classify_waypoint_location(snapshot)
-            return waypoint_id, location
-        
+            text_inputs = self.processor(
+                text=self.text_prompts, 
+                return_tensors="pt", 
+                padding=True
+            )
+            text_features = self.model.get_text_features(**text_inputs)
+            
+            best_confidence = 0.0
+            best_label = "unknown"
+            
+            for image in snapshot.images:
+                if (image.source.name in self.DEPTH_CAMERA_SOURCES or 
+                    image.source.name not in self.CAMERA_SOURCES):
+                    continue
+                
+                opencv_image, _ = self.convert_image_from_snapshot(
+                    image.shot.image, 
+                    image.source.name
+                )
+                pil_image = Image.fromarray(cv2.cvtColor(opencv_image, cv2.COLOR_BGR2RGB))
+                
+                image_inputs = self.processor(
+                    images=pil_image, 
+                    return_tensors="pt"
+                )
+                image_features = self.model.get_image_features(**image_inputs)
+                
+                similarity = torch.nn.functional.cosine_similarity(
+                    image_features, 
+                    text_features
+                )
+                confidence, pred_idx = torch.max(similarity, dim=0)
+                confidence = confidence.item()
+                
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_label = self.text_prompts[pred_idx]
+            
+            return waypoint_id, best_label, best_confidence
+            
         except Exception as e:
             logger.error(f"Error processing waypoint {waypoint_id}: {e}")
-            return waypoint_id, "unknown"
-
+            return waypoint_id, "unknown", 0.0
+            
     def update_annotations(self):
-        """
-        Update waypoint annotations using parallel CLIP classification.
-        """
+        """Update waypoint annotations with neighbor validation."""
         logger.info("Starting CLIP-based waypoint annotation...")
         
-        # Prepare waypoint data for processing
         waypoint_data = [
             (waypoint.id, waypoint.snapshot_id) 
             for waypoint in self.graph.waypoints
         ]
         
-        # Parallel processing or sequential processing
         if self.use_multiprocessing:
             with mp.Pool(processes=max(1, mp.cpu_count() - 1)) as pool:
                 results = pool.map(self._process_single_waypoint, waypoint_data)
         else:
             results = [self._process_single_waypoint(data) for data in waypoint_data]
+
+        initial_predictions = {
+            waypoint_id: (label, confidence) 
+            for waypoint_id, label, confidence in results
+        }
         
-        # Update graph annotations
-        for waypoint_id, location in results:
-            for waypoint in self.graph.waypoints:
-                if waypoint.id == waypoint_id:
-                    waypoint.annotations.name = location
-                    logger.info(f"Waypoint {waypoint_id} labeled as: {location}")
-                    break
+        final_labels = {}
+        for waypoint_id, (label, confidence) in initial_predictions.items():
+            initial_labels = {
+                wid: pred[0] for wid, pred in initial_predictions.items()
+            }
+            final_label = self._validate_annotation(
+                waypoint_id, 
+                label,
+                confidence,
+                initial_labels
+            )
+            final_labels[waypoint_id] = final_label
         
-        logger.info("CLIP-based annotation complete.")
+        for waypoint in self.graph.waypoints:
+            if waypoint.id in final_labels:
+                waypoint.annotations.name = final_labels[waypoint.id]
+                logger.info(
+                    f"Waypoint {waypoint.id} final label: "
+                    f"{final_labels[waypoint.id]}"
+                )
+        
+        logger.info("CLIP-based annotation with neighbor validation complete.")
+
+
 
     def convert_image_from_snapshot(self, image_data, image_source, auto_rotate=True):
         """
@@ -379,6 +484,7 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
             return final_location
         
         return "unknown"
+    
 
 
 def main(args):
@@ -404,18 +510,17 @@ def main(args):
             )
         
         elif args.label_method == "clip":
-            clip_updater = ClipAnnotationUpdater(
+            updater = ClipAnnotationUpdater(
                 graph_file_path, 
-                snapshot_dir, 
+                snapshot_dir,
                 text_prompts=args.prompts,
                 clip_model=args.clip_model,
                 use_multiprocessing=args.parallel,
-                load_clip=True
+                confidence_threshold=args.confidence_threshold,
+                neighbor_threshold=args.neighbor_threshold
             )
-            clip_updater.update_annotations()
-            clip_updater.save_updated_graph(
-                output_dir=output_graph_path, 
-            )
+            updater.update_annotations()
+            updater.save_updated_graph(output_dir=output_graph_path)
     
     except Exception as e:
         logger.error(f"Annotation process failed: {e}")
@@ -431,6 +536,8 @@ if __name__ == "__main__":
     arg_parser.add_argument("--prompts", type=str, nargs='+', help="Custom location prompts for CLIP")
     arg_parser.add_argument("--clip_model", type=str, default="openai/clip-vit-base-patch32", help="CLIP model to use")
     arg_parser.add_argument("--parallel", action="store_true", help="Enable multiprocessing")
+    arg_parser.add_argument("--confidence_threshold", type=float, default=0.6, help="Confidence threshold for CLIP")
+    arg_parser.add_argument("--neighbor_threshold", type=float, default=0.6, help="Neighbor threshold for CLIP")
     
     args = arg_parser.parse_args()
     # Time the main function
