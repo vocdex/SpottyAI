@@ -122,7 +122,6 @@ def process_snapshot_images(snapshot, waypoint_id):
 
     return processed_images
 
-
 def display_images_in_batches(images, grid_size=6):
     """
     Display images in grid batches using matplotlib.
@@ -137,16 +136,20 @@ def display_images_in_batches(images, grid_size=6):
         num_images = len(batch)
         fig, axes = plt.subplots(grid_size, grid_size, figsize=(15, 15))
 
-        axes = axes.flatten()
+        # Handle cases where axes is a single object (e.g., 1x1 grid)
+        if isinstance(axes, np.ndarray):
+            axes = axes.flatten()
+        else:
+            axes = [axes]
 
         for j, ax in enumerate(axes):
             if j < num_images:
                 img, title = batch[j]
                 ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-                ax.set_title(title, fontsize=5)
+                ax.set_title(title, fontsize=10)
                 ax.axis('off')
             else:
-                ax.axis('off')
+                ax.axis('off')  # Turn off unused axes
 
         plt.tight_layout()
         plt.show()

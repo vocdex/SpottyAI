@@ -144,7 +144,8 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         snapshot_dir: str,
         text_prompts: Optional[List[str]] = None,
         clip_model: str = "openai/clip-vit-base-patch32",
-        use_multiprocessing: bool = True
+        use_multiprocessing: bool = True,
+        load_clip: bool = True  # New parameter to control CLIP model loading
     ):
         """
         Initialize the CLIP annotation updater with more flexibility.
@@ -154,6 +155,7 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         :param text_prompts: Custom location descriptions for classification
         :param clip_model: CLIP model to use
         :param use_multiprocessing: Enable parallel processing
+        :param load_clip: Whether to load the CLIP model
         """
         super().__init__(graph_file_path)
         
@@ -194,13 +196,17 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
             'back_depth', 'frontleft_depth', 'frontright_depth', 
             'left_depth', 'right_depth'
         ]
-        # Load CLIP model with error handling
-        try:
-            logger.info(f"Loading CLIP model: {clip_model}")
-            self.model = CLIPModel.from_pretrained(clip_model)
-            self.processor = CLIPProcessor.from_pretrained(clip_model)
-        except Exception as e:
-            raise AnnotationError(f"Failed to load CLIP model: {e}")
+
+        # Load CLIP model if requested
+        self.model = None
+        self.processor = None
+        if load_clip:
+            try:
+                logger.info(f"Loading CLIP model: {clip_model}")
+                self.model = CLIPModel.from_pretrained(clip_model)
+                self.processor = CLIPProcessor.from_pretrained(clip_model)
+            except Exception as e:
+                raise AnnotationError(f"Failed to load CLIP model: {e}")
 
     def _process_single_waypoint(
         self, 
@@ -403,7 +409,8 @@ def main(args):
                 snapshot_dir, 
                 text_prompts=args.prompts,
                 clip_model=args.clip_model,
-                use_multiprocessing=args.parallel
+                use_multiprocessing=args.parallel,
+                load_clip=True
             )
             clip_updater.update_annotations()
             clip_updater.save_updated_graph(
