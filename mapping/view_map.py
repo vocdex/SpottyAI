@@ -4,6 +4,7 @@
 # # is subject to the terms and conditions of the Boston Dynamics Software
 # # Development Kit License (20191101-BDSDK-SL).
 
+""" VTK controls are not supported on MacOS """
 import argparse
 from vtk.util import numpy_support
 import google.protobuf.timestamp_pb2
@@ -14,6 +15,8 @@ import os
 import sys
 import time
 import vtk
+import tkinter as tk
+from tkinter import simpledialog
 
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.api import geometry_pb2
@@ -24,6 +27,65 @@ This example shows how to load and view a graph nav map.
 
 """
 
+
+class WaypointPicker:
+    def __init__(self, renderer, graph, waypoint_objects, waypoint_text_actors):
+        self.renderer = renderer
+        self.graph = graph
+        self.waypoint_objects = waypoint_objects  # Dict of waypoint_id to vtkAssembly
+        self.waypoint_text_actors = waypoint_text_actors  # Dict of waypoint_id to vtkTextActor
+        
+        # Set up picker
+        self.picker = vtk.vtkPropPicker()
+        
+    def pick_waypoint(self, obj, event):
+        """Handle mouse click events to pick waypoints"""
+        clickPos = obj.GetEventPosition()
+        
+        # Perform pick operation
+        if self.picker.Pick(clickPos[0], clickPos[1], 0, self.renderer):
+            # Get the picked actor
+            picked_actor = self.picker.GetActor()
+            
+            # Find which waypoint was picked by checking assemblies
+            for waypoint_id, assembly in self.waypoint_objects.items():
+                if picked_actor in assembly.GetParts():
+                    self.edit_waypoint_label(waypoint_id)
+                    break
+    
+    def edit_waypoint_label(self, waypoint_id):
+        """Open dialog to edit waypoint label"""
+        # Create root window for dialog
+        root = tk.Tk()
+        root.withdraw()  # Hide the root window
+        
+        # Get current waypoint name
+        current_name = ""
+        for waypoint in self.graph.waypoints:
+            if waypoint.id == waypoint_id:
+                current_name = waypoint.annotations.name
+                break
+        
+        # Show dialog to get new name
+        new_name = simpledialog.askstring("Edit Waypoint Label", 
+                                        f"Enter new label for waypoint {waypoint_id}:",
+                                        initialvalue=current_name)
+        
+        if new_name is not None and new_name != current_name:
+            # Update waypoint annotation in graph
+            for waypoint in self.graph.waypoints:
+                if waypoint.id == waypoint_id:
+                    waypoint.annotations.name = new_name
+                    break
+            
+            # Update text actor
+            text_actor = self.waypoint_text_actors[waypoint_id]
+            text_actor.SetInput(new_name)
+            
+            # Request render update
+            self.renderer.GetRenderWindow().Render()
+        
+        root.destroy()
 
 def numpy_to_poly_data(pts):
     """
@@ -91,7 +153,7 @@ def create_fiducial_object(world_object, waypoint, renderer):
     odom_tform_fiducial_filtered = get_a_tform_b(
         world_object.transforms_snapshot, ODOM_FRAME_NAME,
         world_object.apriltag_properties.frame_name_fiducial_filtered)
-    waypoint_tform_odom = SE3Pose.from_obj(waypoint.waypoint_tform_ko)
+    waypoint_tform_odom = SE3Pose.from_proto(waypoint.waypoint_tform_ko)
     waypoint_tform_fiducial_filtered = api_to_vtk_se3_pose(
         waypoint_tform_odom * odom_tform_fiducial_filtered)
     plane_source = vtk.vtkPlaneSource()
@@ -125,7 +187,7 @@ def create_point_cloud_object(waypoints, snapshots, waypoint_id):
     cloud = snapshot.point_cloud
     odom_tform_cloud = get_a_tform_b(cloud.source.transforms_snapshot, ODOM_FRAME_NAME,
                                      cloud.source.frame_name_sensor)
-    waypoint_tform_odom = SE3Pose.from_obj(wp.waypoint_tform_ko)
+    waypoint_tform_odom = SE3Pose.from_proto(wp.waypoint_tform_ko)
     waypoint_tform_cloud = api_to_vtk_se3_pose(waypoint_tform_odom * odom_tform_cloud)
 
     point_cloud_data = np.frombuffer(cloud.data, dtype=np.float32).reshape(int(cloud.num_points), 3)
@@ -308,7 +370,7 @@ def create_anchored_graph_objects(current_graph, current_waypoint_snapshots, cur
         if waypoint.id in current_anchors:
             waypoint_object = create_waypoint_object(renderer, current_waypoints,
                                                      current_waypoint_snapshots, waypoint.id)
-            seed_tform_waypoint = SE3Pose.from_obj(
+            seed_tform_waypoint = SE3Pose.from_proto(
                 current_anchors[waypoint.id].seed_tform_waypoint).to_matrix()
             waypoint_object.SetUserTransform(mat_to_vtk(seed_tform_waypoint))
             make_text(waypoint.annotations.name, seed_tform_waypoint[:3, 3], renderer)
@@ -320,16 +382,16 @@ def create_anchored_graph_objects(current_graph, current_waypoint_snapshots, cur
     # Create VTK objects associated with each edge.
     for edge in current_graph.edges:
         if edge.id.from_waypoint in current_anchors and edge.id.to_waypoint in current_anchors:
-            seed_tform_from = SE3Pose.from_obj(
+            seed_tform_from = SE3Pose.from_proto(
                 current_anchors[edge.id.from_waypoint].seed_tform_waypoint).to_matrix()
-            from_tform_to = SE3Pose.from_obj(edge.from_tform_to).to_matrix()
+            from_tform_to = SE3Pose.from_proto(edge.from_tform_to).to_matrix()
             create_edge_object(from_tform_to, seed_tform_from, renderer)
 
     # Create VTK objects associated with each anchored world object.
     for anchored_wo in current_anchored_world_objects.values():
         # anchored_wo is a tuple of (anchored_world_object, waypoint, fiducial).
         (fiducial_object, _) = create_fiducial_object(anchored_wo[2], anchored_wo[1], renderer)
-        seed_tform_fiducial = SE3Pose.from_obj(anchored_wo[0].seed_tform_object).to_matrix()
+        seed_tform_fiducial = SE3Pose.from_proto(anchored_wo[0].seed_tform_object).to_matrix()
         fiducial_object.SetUserTransform(mat_to_vtk(seed_tform_fiducial))
         make_text(anchored_wo[0].id, seed_tform_fiducial[:3, 3], renderer)
 
@@ -346,6 +408,8 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
     :return: the average position in world space of all the waypoints.
     """
     waypoint_objects = {}
+    waypoint_text_actors = {}  # New dict to track text actors
+
     # Create VTK objects associated with each waypoint.
     for waypoint in current_graph.waypoints:
         waypoint_objects[waypoint.id] = create_waypoint_object(renderer, current_waypoints,
@@ -363,7 +427,6 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
 
     # Breadth first search.
     while len(queue) > 0:
-        # Visit a waypoint.
         curr_element = queue[0]
         queue.pop(0)
         curr_waypoint = curr_element[0]
@@ -371,12 +434,16 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
             continue
         visited[curr_waypoint.id] = True
 
-        # We now know the global pose of this waypoint, so set the pose.
         waypoint_objects[curr_waypoint.id].SetUserTransform(mat_to_vtk(curr_element[1]))
         world_tform_current_waypoint = curr_element[1]
-        # Add text to the waypoint.
-        make_text(curr_waypoint.annotations.name, world_tform_current_waypoint[:3, 3], renderer)
-
+        
+        # Store text actor reference
+        text_actor = make_text(curr_waypoint.annotations.name, 
+                             world_tform_current_waypoint[:3, 3], 
+                             renderer)
+        waypoint_text_actors[curr_waypoint.id] = text_actor
+        
+    
         # For each fiducial in the waypoint's snapshot, add an object at the world pose of that fiducial.
         if (curr_waypoint.snapshot_id in current_waypoint_snapshots):
             snapshot = current_waypoint_snapshots[curr_waypoint.snapshot_id]
@@ -394,7 +461,7 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
         for edge in current_graph.edges:
             # If the edge is directed away from us...
             if edge.id.from_waypoint == curr_waypoint.id and edge.id.to_waypoint not in visited:
-                current_waypoint_tform_to_waypoint = SE3Pose.from_obj(
+                current_waypoint_tform_to_waypoint = SE3Pose.from_proto(
                     edge.from_tform_to).to_matrix()
                 world_tform_to_wp = create_edge_object(current_waypoint_tform_to_waypoint,
                                                        world_tform_current_waypoint, renderer)
@@ -403,7 +470,7 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
                 avg_pos += world_tform_to_wp[:3, 3]
             # If the edge is directed toward us...
             elif edge.id.to_waypoint == curr_waypoint.id and edge.id.from_waypoint not in visited:
-                current_waypoint_tform_from_waypoint = (SE3Pose.from_obj(
+                current_waypoint_tform_from_waypoint = (SE3Pose.from_proto(
                     edge.from_tform_to).inverse()).to_matrix()
                 world_tform_from_wp = create_edge_object(current_waypoint_tform_from_waypoint,
                                                          world_tform_current_waypoint, renderer)
@@ -413,12 +480,12 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
 
     # Compute the average waypoint position to place the camera appropriately.
     avg_pos /= len(current_waypoints)
-    return avg_pos
+    return avg_pos, waypoint_objects, waypoint_text_actors
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('path', type=str, help='Path to map directory.')
+    parser.add_argument('--path', type=str, help='Path to map directory.')
     parser.add_argument('-a', '--anchoring', action='store_true',
                         help='Draw the map according to the anchoring (in seed frame).')
     options = parser.parse_args(argv)
@@ -431,38 +498,80 @@ def main(argv):
     renderer.SetBackground(0.05, 0.1, 0.15)
 
     if options.anchoring:
-        if len(current_graph.anchoring.anchors) == 0:
-            print('No anchors to draw.')
-            sys.exit(-1)
-        avg_pos = create_anchored_graph_objects(current_graph, current_waypoint_snapshots,
-                                                current_waypoints, current_anchors,
-                                                current_anchored_world_objects, renderer)
+        avg_pos = create_anchored_graph_objects(...)
     else:
-        avg_pos = create_graph_objects(current_graph, current_waypoint_snapshots, current_waypoints,
-                                       renderer)
-
-    camera_pos = avg_pos + np.array([-1, 0, 5])
-
-    camera = renderer.GetActiveCamera()
-    camera.SetViewUp(0, 0, 1)
-    camera.SetPosition(camera_pos[0], camera_pos[1], camera_pos[2])
-
-    # Create the VTK renderer and interactor.
+        avg_pos, waypoint_objects, waypoint_text_actors = create_graph_objects(
+            current_graph, current_waypoint_snapshots, current_waypoints, renderer)
+    
+    # Set up waypoint picker
+    picker = WaypointPicker(renderer, current_graph, waypoint_objects, waypoint_text_actors)
+    
+    # Create the VTK renderer and interactor
     renderWindow = vtk.vtkRenderWindow()
     renderWindow.SetWindowName(options.path)
     renderWindow.AddRenderer(renderer)
     renderWindowInteractor = vtk.vtkRenderWindowInteractor()
     renderWindowInteractor.SetRenderWindow(renderWindow)
     renderWindow.SetSize(1200, 1200)
-    style = vtk.vtkInteractorStyleTerrain()
-    renderWindowInteractor.SetInteractorStyle(style)
-    renderer.ResetCamera()
+    
+    # Use TrackballCamera style instead of Terrain for better interaction
+    # style = vtk.vtkInteractorStyleTrackballCamera()
+    style = vtk.vtkInteractorStyleRubberBandZoom()
+    move_step = 3.0
 
-    # Start rendering.
+    def zoom_in_out(obj, event):
+        key = renderWindowInteractor.GetKeySym()  # Get the pressed key
+        if key == "minus":  # Zoom out (minus key)
+            renderer.GetActiveCamera().Dolly(0.5)
+            renderer.ResetCameraClippingRange()
+            renderWindow.Render()
+        elif key == "equal":  # Zoom in (plus key with Shift)
+            # Check if Shift is pressed
+            renderer.GetActiveCamera().Dolly(1.5)
+            renderer.ResetCameraClippingRange()
+            renderWindow.Render()
+
+        
+    def move_camera(obj, event):
+        key = renderWindowInteractor.GetKeySym()  # Get the pressed key
+        camera = renderer.GetActiveCamera()
+        position = camera.GetPosition()
+        focal_point = camera.GetFocalPoint()
+        
+        # Move camera based on arrow key input
+        if key == "Up":
+            camera.SetPosition(position[0], position[1] + move_step, position[2])
+            camera.SetFocalPoint(focal_point[0], focal_point[1] + move_step, focal_point[2])
+        elif key == "Down":
+            camera.SetPosition(position[0], position[1] - move_step, position[2])
+            camera.SetFocalPoint(focal_point[0], focal_point[1] - move_step, focal_point[2])
+        elif key == "Left":
+            camera.SetPosition(position[0] - move_step, position[1], position[2])
+            camera.SetFocalPoint(focal_point[0] - move_step, focal_point[1], focal_point[2])
+        elif key == "Right":
+            camera.SetPosition(position[0] + move_step, position[1], position[2])
+            camera.SetFocalPoint(focal_point[0] + move_step, focal_point[1], focal_point[2])
+        
+        renderer.ResetCameraClippingRange()
+        renderWindow.Render()
+
+    # Bind the callback to the interactor
+    renderWindowInteractor.AddObserver("KeyPressEvent", move_camera)
+
+    renderWindowInteractor.AddObserver("KeyPressEvent", zoom_in_out)
+
+    renderWindowInteractor.SetInteractorStyle(style)
+    
+    # Add observer for left mouse clicks
+    renderWindowInteractor.AddObserver('LeftButtonPressEvent', picker.pick_waypoint)
+    
+    renderer.ResetCamera()
+    
+    # Start rendering
     renderWindow.Render()
-    renderWindow.Start()
     renderWindowInteractor.Start()
 
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+
