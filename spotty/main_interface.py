@@ -55,6 +55,7 @@ class IntegratedSpotSystem:
         graph_file_path, snapshot_dir, _ = self._get_map_paths(map_path)
         self.rag_system = MultimodalRAGAnnotator(
             graph_file_path=graph_file_path,
+            logger=logging.getLogger(__name__),
             snapshot_dir=snapshot_dir,
             vector_db_path=vector_db_path,
             load_clip=False

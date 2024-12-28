@@ -14,12 +14,12 @@ import pvporcupine
 import numpy as np
 import pygame
 from pvrecorder import PvRecorder
-from spotty.audio.system_prompts import  system_prompt_robin
+from spotty.audio.system_prompts import  system_prompt_robin, system_prompt_assistant
 from dotenv import load_dotenv
 
 load_dotenv()  
 
-system_prompt=system_prompt_robin
+system_prompt=system_prompt_assistant
 # Optional local model imports
 try:
     from whispercpp import Whisper
