@@ -8,12 +8,12 @@ import threading
 import queue
 import argparse
 import subprocess
+import platform
 import time
 import pvporcupine
 import numpy as np
 import pygame
 from pvrecorder import PvRecorder
-import platform
 from system_prompts import  system_prompt_robin
 from dotenv import load_dotenv
 

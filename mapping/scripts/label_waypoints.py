@@ -172,7 +172,7 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         
         # Default prompts with more comprehensive locations
         self.text_prompts = text_prompts or [
-            "kitchen", "office", "hallway"
+            "kitchen", "office", "hallway",
         ]
         # Rotation angles for different camera sources
         self.ROTATION_ANGLE = {
@@ -186,8 +186,8 @@ class ClipAnnotationUpdater(BaseWaypointAnnotationUpdater):
         # Camera sources to process
         self.CAMERA_SOURCES = [
             'back_fisheye_image', 
-            'frontleft_fisheye_image', 
-            'frontright_fisheye_image', 
+            # 'frontleft_fisheye_image', 
+            # 'frontright_fisheye_image', 
             'left_fisheye_image', 
             'right_fisheye_image'
         ]

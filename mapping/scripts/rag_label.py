@@ -330,7 +330,7 @@ def main(args):
     )
 
     # Update annotations and build RAG database
-    # rag_annotator.update_annotations_with_rag()
+    rag_annotator.update_annotations_with_rag()
     
     # Example query
     results = rag_annotator.query_location(

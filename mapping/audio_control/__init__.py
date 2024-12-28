@@ -1,0 +1,1 @@
+from spot_assistant import WakeWordConversationAgent
