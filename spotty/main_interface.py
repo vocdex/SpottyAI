@@ -61,7 +61,7 @@ class IntegratedSpotSystem:
         )
         
         # Initialize conversation system
-        from spotty.audio_control import WakeWordConversationAgent
+        from spotty.audio import WakeWordConversationAgent
         self.conversation_agent = WakeWordConversationAgent(
             access_key=os.getenv("PICOVOICE_ACCESS_KEY"),
             keyword_path= os.path.join(ASSETS_PATH,"./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn"),
@@ -190,14 +190,14 @@ class IntegratedSpotSystem:
     @staticmethod
     def _get_map_paths(map_path: str):
         """Get paths for graph and snapshots"""
-        from spotty.utils.common import get_map_paths
+        from spotty.utils.common_utils import get_map_paths
         return get_map_paths(map_path)
 
 def main():
     """Main entry point"""
     import argparse
     from bosdyn.client import create_standard_sdk
-    from spotty.utils.robot import auto_authenticate
+    from spotty.utils.robot_utils import auto_authenticate
     
     parser = argparse.ArgumentParser(description="Integrated Spot System")
     parser.add_argument("--hostname", required=False, default="192.168.80.3", help="Robot hostname")

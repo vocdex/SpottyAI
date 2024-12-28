@@ -2,7 +2,7 @@ import logging
 import argparse
 from dotenv import load_dotenv
 from spotty.annotation.rag import MultimodalRAGAnnotator
-from spotty.utils.common import get_map_paths
+from spotty.utils.common_utils import get_map_paths
 
 logger = logging.getLogger(__name__)
 

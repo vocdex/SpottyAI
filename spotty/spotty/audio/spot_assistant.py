@@ -14,7 +14,7 @@ import pvporcupine
 import numpy as np
 import pygame
 from pvrecorder import PvRecorder
-from spotty.audio_control.system_prompts import  system_prompt_robin
+from spotty.audio.system_prompts import  system_prompt_robin
 from dotenv import load_dotenv
 
 load_dotenv()  

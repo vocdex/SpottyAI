@@ -6,36 +6,24 @@
 
 """Command line interface for graph nav with options to download/upload a map and to navigate a map. """
 
-import argparse
-import grpc
-import logging
 import math
 import os
-import sys
 import time
 import numpy as np
 
-from bosdyn.api import geometry_pb2
-from bosdyn.api import power_pb2
 from bosdyn.api import robot_state_pb2
 from bosdyn.api.graph_nav import graph_nav_pb2
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.api.graph_nav import nav_pb2
-import bosdyn.client.channel
 from bosdyn.client.power import safe_power_off, PowerClient, power_on
 from bosdyn.client.exceptions import ResponseError
 from bosdyn.client.graph_nav import GraphNavClient
 from bosdyn.client.frame_helpers import get_odom_tform_body
-from bosdyn.client.lease import LeaseClient, LeaseKeepAlive, LeaseWallet, ResourceAlreadyClaimedError
+from bosdyn.client.lease import LeaseClient, LeaseKeepAlive,  ResourceAlreadyClaimedError
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
-from spotty.utils.robot import auto_authenticate
-import bosdyn.client.util
-import google.protobuf.timestamp_pb2
-
-
-from spotty.utils import graph_nav
+from spotty.utils import graph_nav_utils
 
 
 class GraphNavInterface(object):
@@ -128,7 +116,7 @@ class GraphNavInterface(object):
             # If no waypoint id is given as input, then return without initializing.
             print("No waypoint specified to initialize to.")
             return
-        destination_waypoint = graph_nav.find_unique_waypoint_id(
+        destination_waypoint = graph_nav_utils.find_unique_waypoint_id(
             args[0][0], self._current_graph, self._current_annotation_name_to_wp_id)
         if not destination_waypoint:
             # Failed to find the unique waypoint id.
@@ -162,7 +150,7 @@ class GraphNavInterface(object):
         localization_id = self._graph_nav_client.get_localization_state().localization.waypoint_id
 
         # Update and print waypoints and edges
-        self._current_annotation_name_to_wp_id, self._current_edges = graph_nav.update_waypoints_and_edges(
+        self._current_annotation_name_to_wp_id, self._current_edges = graph_nav_utils.update_waypoints_and_edges(
             graph, localization_id)
 
     def _upload_graph_and_snapshots(self, *args):
@@ -292,7 +280,7 @@ class GraphNavInterface(object):
             return
 
         self._lease = self._lease_wallet.get_lease()
-        destination_waypoint = graph_nav.find_unique_waypoint_id(
+        destination_waypoint = graph_nav_utils.find_unique_waypoint_id(
             args[0][0], self._current_graph, self._current_annotation_name_to_wp_id)
         if not destination_waypoint:
             # Failed to find the appropriate unique waypoint id for the navigation command.
@@ -429,7 +417,7 @@ class GraphNavInterface(object):
             return
         waypoint_ids = args[0]
         for i in range(len(waypoint_ids)):
-            waypoint_ids[i] = graph_nav.find_unique_waypoint_id(
+            waypoint_ids[i] = graph_nav_utils.find_unique_waypoint_id(
                 waypoint_ids[i], self._current_graph, self._current_annotation_name_to_wp_id)
             if not waypoint_ids[i]:
                 # Failed to find the unique waypoint id.
@@ -610,34 +598,3 @@ class GraphNavInterface(object):
                 cmd_func(str.split(inputs)[1:])
             except Exception as e:
                 print(e)
-
-
-def main(argv):
-    """Run the command-line interface."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('-u', '--upload-filepath',
-                        help='Full filepath to graph and snapshots to be uploaded.', required=True)
-    bosdyn.client.util.add_base_arguments(parser)
-    options = parser.parse_args(argv)
-
-    # Setup and authenticate the robot.
-    sdk = bosdyn.client.create_standard_sdk('GraphNavClient')
-    robot = sdk.create_robot(options.hostname)
-    auto_authenticate(robot)
-    
-    graph_nav_command_line = GraphNavInterface(robot, options.upload_filepath)
-    try:
-        graph_nav_command_line.run()
-        return True
-    except Exception as exc:  # pylint: disable=broad-except
-        print(exc)
-        print("Graph nav command line client threw an error.")
-        graph_nav_command_line.return_lease()
-        return False
-
-
-if __name__ == '__main__':
-    exit_code = 0
-    if not main(sys.argv[1:]):
-        exit_code = 1
-    os._exit(exit_code)  # Exit hard, no cleanup that could block.

@@ -6,7 +6,7 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import map_pb2
-from spotty.utils.common import get_map_paths
+from spotty.utils.common_utils import get_map_paths
 
 # Rotation angles for different camera sources
 ROTATION_ANGLE = {

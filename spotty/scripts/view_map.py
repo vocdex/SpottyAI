@@ -19,9 +19,7 @@ from bosdyn.client.frame_helpers import *
 from bosdyn.client.math_helpers import *
 """
 This example shows how to load and view a graph nav map.
-
 """
-
 
 class WaypointPicker:
     def __init__(self, renderer, graph, waypoint_objects, waypoint_text_actors):

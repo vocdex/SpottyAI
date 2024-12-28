@@ -1,6 +1,6 @@
 # tests/test_module1.py
 import unittest
-from spotty.audio_control import WakeWordConversationAgent
+from spotty.audio import WakeWordConversationAgent
 
 class TestFunction1(unittest.TestCase):
     def test_function1(self):

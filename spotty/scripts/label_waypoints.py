@@ -4,7 +4,7 @@
 """
 import argparse
 import logging
-from spotty.utils.common import get_map_paths, read_manual_labels
+from spotty.utils.common_utils import get_map_paths, read_manual_labels
 from spotty.annotation.clip_manual import ManualAnnotationUpdater, ClipAnnotationUpdater
 
 
