@@ -11,8 +11,7 @@ import subprocess
 import time
 import pvporcupine
 import numpy as np
-from scipy import signal
-import sounddevice as sd
+import pygame
 from pvrecorder import PvRecorder
 import platform
 from system_prompts import  system_prompt_robin
@@ -223,74 +222,49 @@ def chat_with_local_llama(user_input, model_path="./models/7B/llama-model.gguf")
 
 # TTS functions
 
-def create_modern_beep(type="start", volume=0.3):
-    """
-    Create a modern notification sound similar to Alexa/Siri.
-    
-    :param type: "start" for recording start sound, "end" for recording end sound
-    :param volume: Volume of the sound (0.0 to 1.0)
-    :return: NumPy array of audio samples
-    """
-    sample_rate = 44100
-    
-    if type == "start":
-        # Create an upward sweep
-        duration = 0.15
-        t = np.linspace(0, duration, int(sample_rate * duration), False)
-        
-        # Main frequencies for the sweep
-        f1, f2 = 880, 1760  # A5 to A6
-        sweep = volume * (
-            np.sin(2 * np.pi * (f1 + (f2-f1) * t/duration) * t) +
-            0.3 * np.sin(4 * np.pi * (f1 + (f2-f1) * t/duration) * t)
-        )
-        
-        # Smooth envelope
-        envelope = np.exp(-4 * (t - duration/2) ** 2 / (duration/2) ** 2)
-        
-    else:  # end sound
-        # Create a downward sweep
-        duration = 0.15
-        t = np.linspace(0, duration, int(sample_rate * duration), False)
-        
-        # Main frequencies for the sweep
-        f1, f2 = 1760, 880  # A6 to A5
-        sweep = volume * (
-            np.sin(2 * np.pi * (f1 + (f2-f1) * t/duration) * t) +
-            0.3 * np.sin(4 * np.pi * (f1 + (f2-f1) * t/duration) * t)
-        )
-        
-        # Smooth envelope with faster decay
-        envelope = np.exp(-6 * (t - duration/4) ** 2 / (duration/2) ** 2)
-    
-    # Apply envelope and smoothing
-    sound = (sweep * envelope).astype(np.float32)
-    
-    # Apply a gentle low-pass filter
-    from scipy import signal
-    b, a = signal.butter(2, 0.1)
-    sound = signal.filtfilt(b, a, sound)
-    
-    return sound
-
-def play_modern_beep(type="start", volume=0.3, blocking=True):
-    """
-    Play a modern notification sound.
-    
-    :param type: "start" for recording start sound, "end" for recording end sound
-    :param volume: Volume of the sound (0.0 to 1.0)
-    :param blocking: Whether to block until sound is finished
-    """
+def initialize_pygame_mixer():
+    """Initialize pygame mixer for audio"""
     try:
-        beep = create_modern_beep(type, volume)
-        if blocking:
-            sd.play(beep, samplerate=44100)
-            sd.wait()
-        else:
-            sd.play(beep, samplerate=44100)
-    except Exception as e:
-        print(f"Error playing notification sound: {e}")
+        pygame.mixer.init(44100, -16, 1, 1024)
+    except:
+        print("Could not initialize pygame mixer")
 
+def create_beep_sound(frequency=1000, duration=0.2):
+    """Create a simple beep sound using pygame"""
+    try:
+        sample_rate = 44100
+        bits = -16
+        pygame.mixer.init(sample_rate, bits, 1)
+        
+        # Generate samples
+        samples = np.zeros((int(sample_rate * duration),))
+        for i in range(len(samples)):
+            samples[i] = np.sin(2.0 * np.pi * frequency * i / sample_rate)
+        
+        # Convert to 16-bit integers
+        samples = (samples * 32767).astype(np.int16)
+        
+        # Create Sound object
+        sound = pygame.sndarray.make_sound(samples)
+        return sound
+    except Exception as e:
+        print(f"Error creating beep sound: {e}")
+        return None
+
+def play_beep(type="start"):
+    """Play beep sound"""
+    try:
+        if type == "start":
+            freq = 1500  # Higher pitch for start
+        else:
+            freq = 800   # Lower pitch for end
+            
+        sound = create_beep_sound(frequency=freq, duration=0.1)
+        if sound:
+            sound.play()
+            pygame.time.wait(100)  # Wait for sound to finish
+    except Exception as e:
+        print(f"Error playing beep: {e}")
 
 def text_to_speech(text,tts):
     """
@@ -447,7 +421,7 @@ class WakeWordConversationAgent:
                 self.wake_word_queue.get(timeout=1)
                 
                 # Play start recording sound
-                play_modern_beep(type="start", volume=0.3)
+                play_beep(type="start")
                 print("\nWake word detected! Starting to listen...")
                 
                 # Stop the PvRecorder to prevent audio overlap
@@ -460,7 +434,7 @@ class WakeWordConversationAgent:
                 
                 if audio_file:
                     # Play end recording sound
-                    play_modern_beep(type="end", volume=0.3)
+                    play_beep(type="end")
                     
                     # Clear the line after recording
                     print("\n", end='')
@@ -585,6 +559,8 @@ def main():
     parser.add_argument('--audio-device-index', type=int, default=-1)
     
     args = parser.parse_args()
+    initialize_pygame_mixer()
+
     
     # Initialize and start the conversation agent
     agent = WakeWordConversationAgent(

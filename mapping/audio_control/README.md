@@ -15,12 +15,17 @@ conda activate audio_control
 Install the Hugging Face CLI and the llama-cpp-python package:
 ```bash
 pip install huggingface-hub 
-CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+CMAKE_ARGS="-DGGML_METAL=on" 
+pip install llama-cpp-python
 ```
 Please refer to the [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) if there are any issues with the installation.
 Install Whisper.cpp Python bindings package
 ```bash
 pip install git+https://github.com/stlukey/whispercpp.py
+```
+If you have an older version of Numpy, you may need to upgrade it to support the Whisper.cpp package:
+```bash
+pip install numpy --upgrade
 ```
 Please refer to the [whispercpp.py](https://github.com/stlukey/whispercpp.py) if there are any issues with the installation.
 ### Build issues
