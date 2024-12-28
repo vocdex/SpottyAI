@@ -195,8 +195,8 @@ def test_integrated_system():
     # Initialize system with mock components
     system = IntegratedSpotSystem(
         robot=mock_robot,
-        map_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/mapping/maps/chair_graph_images",
-        vector_db_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/mapping/vector_db_chair"
+        map_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/maps/chair_graph_images",
+        vector_db_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/rag_db/vector_db_chair"
     )
     
     print("\nStarting mock Spot system for testing...")

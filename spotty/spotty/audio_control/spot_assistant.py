@@ -14,10 +14,10 @@ import pvporcupine
 import numpy as np
 import pygame
 from pvrecorder import PvRecorder
-from system_prompts import  system_prompt_robin
+from spotty.audio_control.system_prompts import  system_prompt_robin
 from dotenv import load_dotenv
 
-load_dotenv()  # take environment variables from .env.
+load_dotenv()  
 
 system_prompt=system_prompt_robin
 # Optional local model imports

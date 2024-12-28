@@ -2,9 +2,8 @@
 The main parts are combined from graph_nav_command_line.py and spot_assistant.py scripts
 """
 import os
-import json
 import time
-from typing import Optional, Dict, List
+from typing import Optional, List
 import logging
 from dataclasses import dataclass
 from openai import OpenAI
@@ -14,6 +13,8 @@ from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
 from bosdyn.client.graph_nav import GraphNavClient
 from bosdyn.client.power import PowerClient
 from bosdyn.client.robot_state import RobotStateClient
+from spotty import ASSETS_PATH
+
 
 @dataclass
 class SpotState:
@@ -42,6 +43,7 @@ class IntegratedSpotSystem:
         self._graph_nav_client = self.robot.ensure_client(GraphNavClient.default_service_name)
         self._power_client = self.robot.ensure_client(PowerClient.default_service_name)
         self._robot_state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
+        print(self._robot_state_client)
         
         # Initialize lease management
         self._lease_wallet = self._lease_client.lease_wallet
@@ -49,7 +51,7 @@ class IntegratedSpotSystem:
         self._lease_keepalive = LeaseKeepAlive(self._lease_client)
         
         # Initialize RAG system
-        from rag_label import MultimodalRAGAnnotator
+        from spotty.annotation import MultimodalRAGAnnotator
         graph_file_path, snapshot_dir, _ = self._get_map_paths(map_path)
         self.rag_system = MultimodalRAGAnnotator(
             graph_file_path=graph_file_path,
@@ -59,10 +61,10 @@ class IntegratedSpotSystem:
         )
         
         # Initialize conversation system
-        from .audio_control.spot_assistant import WakeWordConversationAgent
+        from spotty.audio_control import WakeWordConversationAgent
         self.conversation_agent = WakeWordConversationAgent(
             access_key=os.getenv("PICOVOICE_ACCESS_KEY"),
-            keyword_path="./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn",
+            keyword_path= os.path.join(ASSETS_PATH,"./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn"),
             transcription_method='openai',
             inference_method='openai',
             tts='openai'
@@ -188,14 +190,14 @@ class IntegratedSpotSystem:
     @staticmethod
     def _get_map_paths(map_path: str):
         """Get paths for graph and snapshots"""
-        from utils.common_utils import get_map_paths
+        from spotty.spotty.utils.common import get_map_paths
         return get_map_paths(map_path)
 
 def main():
     """Main entry point"""
     import argparse
     from bosdyn.client import create_standard_sdk
-    from utils.robot_utils import auto_authenticate
+    from spotty.spotty.utils.robot import auto_authenticate
     
     parser = argparse.ArgumentParser(description="Integrated Spot System")
     parser.add_argument("--hostname", required=True, help="Robot hostname")

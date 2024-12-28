@@ -14,8 +14,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.schema import Document
 import json
 from bosdyn.api.graph_nav import map_pb2
-from label_waypoints import ClipAnnotationUpdater
-from utils import get_map_paths
+from spotty.annotation.clip_annotation import ClipAnnotationUpdater
+from spotty.utils import get_map_paths
 
 logger = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import map_pb2
-from utils import get_map_paths, read_manual_labels
+from spotty.utils import get_map_paths, read_manual_labels
 
 # Configure logging
 logging.basicConfig(
