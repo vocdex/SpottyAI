@@ -190,17 +190,17 @@ class IntegratedSpotSystem:
     @staticmethod
     def _get_map_paths(map_path: str):
         """Get paths for graph and snapshots"""
-        from spotty.spotty.utils.common import get_map_paths
+        from spotty.utils.common import get_map_paths
         return get_map_paths(map_path)
 
 def main():
     """Main entry point"""
     import argparse
     from bosdyn.client import create_standard_sdk
-    from spotty.spotty.utils.robot import auto_authenticate
+    from spotty.utils.robot import auto_authenticate
     
     parser = argparse.ArgumentParser(description="Integrated Spot System")
-    parser.add_argument("--hostname", required=True, help="Robot hostname")
+    parser.add_argument("--hostname", required=False, default="192.168.80.3", help="Robot hostname")
     parser.add_argument("--map-path", required=True, help="Path to map directory")
     args = parser.parse_args()
     

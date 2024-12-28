@@ -1,3 +1,2 @@
-import os
-from .clip_annotation import BaseWaypointAnnotationUpdater, ClipAnnotationUpdater, ManualAnnotationUpdater
-from .rag_annotation import MultimodalRAGAnnotator
+from .clip_manual import BaseWaypointAnnotationUpdater, ClipAnnotationUpdater, ManualAnnotationUpdater
+from .rag import MultimodalRAGAnnotator

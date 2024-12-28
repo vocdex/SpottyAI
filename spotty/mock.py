@@ -1,7 +1,4 @@
-import os
-import time
 import logging
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from threading import Thread
 
@@ -14,8 +11,11 @@ class MockClient:
     """Base mock client class"""
     def __init__(self, name: str):
         self.name = name
-        
+
 class MockLeaseClient(MockClient):
+    """Mock lease client"""
+    default_service_name = "lease"
+    
     def __init__(self):
         super().__init__("lease")
         self.lease_wallet = self
@@ -30,6 +30,9 @@ class MockLeaseClient(MockClient):
         return MockLease()
 
 class MockRobotCommandClient(MockClient):
+    """Mock robot command client"""
+    default_service_name = "robot-command"
+    
     def __init__(self):
         super().__init__("command")
     
@@ -37,6 +40,9 @@ class MockRobotCommandClient(MockClient):
         logging.info("Mock robot command executed")
 
 class MockGraphNavClient(MockClient):
+    """Mock graph nav client"""
+    default_service_name = "graph-nav-service"
+    
     def __init__(self):
         super().__init__("graph_nav")
         self.current_waypoint = None
@@ -53,10 +59,16 @@ class MockGraphNavClient(MockClient):
         return MockStatus()
 
 class MockPowerClient(MockClient):
+    """Mock power client"""
+    default_service_name = "power"
+    
     def __init__(self):
         super().__init__("power")
 
 class MockRobotStateClient(MockClient):
+    """Mock robot state client"""
+    default_service_name = "robot-state"
+    
     def __init__(self):
         super().__init__("state")
         
@@ -68,25 +80,41 @@ class MockRobotStateClient(MockClient):
             power_state = MockPowerState()
         return MockState()
 
+class MockTimeSync:
+    """Mock time sync"""
+    def wait_for_sync(self):
+        pass
+
 class MockRobot:
     """Mock Spot robot for testing"""
     def __init__(self):
-        self._clients = {
-            "lease": MockLeaseClient(),
-            "command": MockRobotCommandClient(),
-            "graph_nav": MockGraphNavClient(),
-            "power": MockPowerClient(),
-            "state": MockRobotStateClient()
+        # Initialize all clients
+        self._lease_client = MockLeaseClient()
+        self._command_client = MockRobotCommandClient()
+        self._graph_nav_client = MockGraphNavClient()
+        self._power_client = MockPowerClient()
+        self._state_client = MockRobotStateClient()
+        self._time_sync = MockTimeSync()
+        
+        # Map service names to clients
+        self._service_client_map = {
+            MockLeaseClient.default_service_name: self._lease_client,
+            MockRobotCommandClient.default_service_name: self._command_client,
+            MockGraphNavClient.default_service_name: self._graph_nav_client,
+            MockPowerClient.default_service_name: self._power_client,
+            MockRobotStateClient.default_service_name: self._state_client,
         }
         
-    def ensure_client(self, name: str) -> MockClient:
-        return self._clients.get(name)
+    def ensure_client(self, service_name: str) -> MockClient:
+        """Get client by service name"""
+        client = self._service_client_map.get(service_name)
+        if client is None:
+            raise ValueError(f"Unknown service name: {service_name}")
+        return client
         
+    @property
     def time_sync(self):
-        class MockTimeSync:
-            def wait_for_sync(self):
-                pass
-        return MockTimeSync()
+        return self._time_sync
 
 class MockLeaseKeepAlive:
     """Mock lease keep-alive"""
@@ -199,6 +227,7 @@ def test_integrated_system():
         vector_db_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/rag_db/vector_db_chair"
     )
     
+    
     print("\nStarting mock Spot system for testing...")
     print("Available test locations: kitchen, office, lab")
     print("Try commands like:")
@@ -212,5 +241,4 @@ def test_integrated_system():
         system.stop()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     test_integrated_system()

@@ -7,19 +7,14 @@
 """ VTK controls are not supported on MacOS """
 import argparse
 from vtk.util import numpy_support
-import google.protobuf.timestamp_pb2
-import math
 import numpy as np
-import numpy.linalg
 import os
 import sys
-import time
 import vtk
 import tkinter as tk
 from tkinter import simpledialog
 
 from bosdyn.api.graph_nav import map_pb2
-from bosdyn.api import geometry_pb2
 from bosdyn.client.frame_helpers import *
 from bosdyn.client.math_helpers import *
 """
@@ -514,8 +509,7 @@ def main(argv):
     renderWindowInteractor.SetRenderWindow(renderWindow)
     renderWindow.SetSize(1200, 1200)
     
-    # Use TrackballCamera style instead of Terrain for better interaction
-    # style = vtk.vtkInteractorStyleTrackballCamera()
+    # Modify the interactor style to allow for camera movement
     style = vtk.vtkInteractorStyleRubberBandZoom()
     move_step = 3.0
 

@@ -30,12 +30,12 @@ from bosdyn.client.lease import LeaseClient, LeaseKeepAlive, LeaseWallet, Resour
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
-from spotty.spotty.utils.robot import auto_authenticate
+from spotty.utils.robot import auto_authenticate
 import bosdyn.client.util
 import google.protobuf.timestamp_pb2
 
 
-from spotty.spotty.utils import graph_nav
+from spotty.utils import graph_nav
 
 
 class GraphNavInterface(object):

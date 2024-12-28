@@ -5,7 +5,6 @@ import base64
 from io import BytesIO
 from PIL import Image
 import cv2
-import argparse
 import numpy as np
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -14,10 +13,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.schema import Document
 import json
 from bosdyn.api.graph_nav import map_pb2
-from spotty.annotation.clip_annotation import ClipAnnotationUpdater
-from spotty.utils import get_map_paths
+from spotty.annotation.clip_manual import ClipAnnotationUpdater
 
-logger = logging.getLogger(__name__)
 
 load_dotenv()
 class MultimodalRAGAnnotator(ClipAnnotationUpdater):
@@ -28,15 +25,18 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
     def __init__(
         self,
         graph_file_path: str,
+        logger: logging.Logger,
         snapshot_dir: str,
         vector_db_path: str = "vector_db",
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         load_clip: bool = True,
         **kwargs
     ):
-        super().__init__(graph_file_path, snapshot_dir, load_clip=load_clip, **kwargs)
+        super().__init__(graph_file_path,logger, snapshot_dir, load_clip=load_clip, **kwargs)
+        self.logger = logger
+
         if not load_clip:
-            logger.info("CLIP model not loaded")
+            self.logger.info("CLIP model not loaded")
         # Initialize OpenAI client
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
@@ -47,8 +47,7 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
 
     def _initialize_vector_store(self) -> FAISS:
         """Initialize or load existing vector store."""
-        import faiss
-        
+
         if os.path.exists(self.vector_db_path):
             return FAISS.load_local(
                 self.vector_db_path,
@@ -122,7 +121,7 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
             return response.choices[0].message.content
             
         except Exception as e:
-            logger.error(f"Error in GPT-4o-mini analysis: {e}")
+            self.logger.error(f"Error in GPT-4o-mini analysis: {e}")
             return "Error analyzing scene"
 
     def store_waypoint_data(
@@ -166,8 +165,8 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         self.vector_store.save_local(self.vector_db_path)
         
         # Log the save operation
-        logger.info(f"Saved vector store to {self.vector_db_path}")
-        logger.info(f"Number of documents in store: {len(self.vector_store.docstore._dict)}")
+        self.logger.info(f"Saved vector store to {self.vector_db_path}")
+        self.logger.info(f"Number of documents in store: {len(self.vector_store.docstore._dict)}")
 
         # Save metadata separately for easier debugging
         metadata_path = os.path.join(self.vector_db_path, "metadata.json")
@@ -185,13 +184,13 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         """
         Enhanced annotation update using both CLIP and GPT-4V with RAG storage.
         """
-        logger.info("Starting multimodal RAG annotation...")
+        self.logger.info("Starting multimodal RAG annotation...")
         
         for waypoint in self.graph.waypoints:
             snapshot_path = os.path.join(self.snapshot_dir, waypoint.snapshot_id)
             
             if not os.path.exists(snapshot_path):
-                logger.warning(f"Snapshot not found: {snapshot_path}")
+                self.logger.warning(f"Snapshot not found: {snapshot_path}")
                 continue
             
             try:
@@ -239,10 +238,10 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
                 
                 # Update waypoint annotation
                 waypoint.annotations.name = location
-                logger.info(f"Processed waypoint {waypoint.id} as {location}")
+                self.logger.info(f"Processed waypoint {waypoint.id} as {location}")
             
             except Exception as e:
-                logger.error(f"Error processing waypoint {waypoint.id}: {e}")
+                self.logger.error(f"Error processing waypoint {waypoint.id}: {e}")
     
     def get_vector_store_info(self) -> Dict:
         """
@@ -318,37 +317,3 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
                 print(f"  {part}")
                 
             print("="*50)
-
-
-def main(args):
-    graph_file_path, snapshot_dir, _ = get_map_paths(args.map_path)
-    rag_annotator = MultimodalRAGAnnotator(
-        graph_file_path=graph_file_path,
-        snapshot_dir=snapshot_dir,
-        vector_db_path="vector_db_chair",
-        load_clip=False
-    )
-
-    # Update annotations and build RAG database
-    rag_annotator.update_annotations_with_rag()
-    
-    # Example query
-    results = rag_annotator.query_location(
-    "Where do you see kitchen setup?",
-    k=5,                    # Get top 5 initial matches
-    distance_threshold=3.0  # Only keep results with L2 distance < 2.0
-    )
-    rag_annotator.print_query_results(results, max_results=5)
-
-
-# Example usage:
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description="Multimodal RAG Annotator")
-    parser.add_argument("--map_path", type=str, help="Path to the map directory")
-    parser.add_argument("--vector_db_path", type=str, default="vector_db", help="Path to the vector database")
-    args = parser.parse_args()
-
-    main(args)
-
-    
