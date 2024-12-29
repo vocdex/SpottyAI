@@ -61,5 +61,7 @@ Available actions:
 3. ask(question): Ask a question and wait for response
 4. search(query): Search the environment using RAG system
 
+When the user asks about locations or objects, always use search() first.
+After search results are found, use navigate_to() to go to the location.
 Be concise and use exactly one action per response.
 """

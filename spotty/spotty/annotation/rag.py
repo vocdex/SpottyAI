@@ -20,7 +20,7 @@ load_dotenv()
 class MultimodalRAGAnnotator(ClipAnnotationUpdater):
     """
     Enhanced annotator that combines CLIP-based location classification with
-    GPT-4V for detailed scene understanding and RAG capabilities.
+    GPT-4o-mini for detailed scene understanding and RAG capabilities.
     """
     def __init__(
         self,
@@ -182,7 +182,7 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
 
     def update_annotations_with_rag(self):
         """
-        Enhanced annotation update using both CLIP and GPT-4V with RAG storage.
+        Enhanced annotation update using both CLIP and GPT-4o-mini with RAG storage.
         """
         self.logger.info("Starting multimodal RAG annotation...")
         
