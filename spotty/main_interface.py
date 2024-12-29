@@ -1,226 +1,278 @@
-"""This script contains the main interface for loading/uploading maps, and navigating to waypoints via GraphNav and Whisper/GPT4o-mini audio commands
-The main parts are combined from graph_nav_command_line.py and spot_assistant.py scripts
-"""
 import os
-import time
-from typing import Optional, List
-import logging
+from typing import Optional, List, Dict
+import threading
+import queue
 from dataclasses import dataclass
-from openai import OpenAI
 
-from bosdyn.client.robot_command import RobotCommandClient
-from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
-from bosdyn.client.graph_nav import GraphNavClient
-from bosdyn.client.power import PowerClient
-from bosdyn.client.robot_state import RobotStateClient
+from spotty.audio import WakeWordConversationAgent
+from spotty.mapping import GraphNavInterface
+from spotty.annotation import MultimodalRAGAnnotator
+from dotenv import load_dotenv
 from spotty import ASSETS_PATH
-
+from spotty.audio import system_prompt_assistant
+load_dotenv()
+KEYWORD_PATH = os.path.join(ASSETS_PATH, "/hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn")
 
 @dataclass
-class SpotState:
-    curr_location_id: str
-    location_description: str
-    nearby_locations: List[str]
-    spot_sees: str
+class SpotAction:
+    """Represents an action for Spot to take"""
+    action_type: str  # 'navigate', 'say', 'ask', 'search'
+    params: Dict
 
 class IntegratedSpotSystem:
-    """
-    Integrated system combining wake word detection, RAG, and navigation.
-    """
     def __init__(
         self,
         robot,
-        map_path: str,
-        vector_db_path: str = "vector_db",
-        system_prompt: Optional[str] = None,
-        openai_api_key: Optional[str] = None,
+        upload_path: str,
+        vector_db_path: str,
+        logger,
+        snapshot_dir: str,
+        graph_file: str
     ):
+        # Initialize components
         self.robot = robot
-        
-        # Initialize clients
-        self._lease_client = self.robot.ensure_client(LeaseClient.default_service_name)
-        self._robot_command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
-        self._graph_nav_client = self.robot.ensure_client(GraphNavClient.default_service_name)
-        self._power_client = self.robot.ensure_client(PowerClient.default_service_name)
-        self._robot_state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
-        print(self._robot_state_client)
-        
-        # Initialize lease management
-        self._lease_wallet = self._lease_client.lease_wallet
-        self._lease = self._lease_client.acquire()
-        self._lease_keepalive = LeaseKeepAlive(self._lease_client)
-        
-        # Initialize RAG system
-        from spotty.annotation import MultimodalRAGAnnotator
-        graph_file_path, snapshot_dir, _ = self._get_map_paths(map_path)
-        self.rag_system = MultimodalRAGAnnotator(
-            graph_file_path=graph_file_path,
-            logger=logging.getLogger(__name__),
-            snapshot_dir=snapshot_dir,
-            vector_db_path=vector_db_path,
-            load_clip=False
-        )
-        
-        # Initialize conversation system
-        from spotty.audio import WakeWordConversationAgent
-        self.conversation_agent = WakeWordConversationAgent(
+        self.nav_interface = GraphNavInterface(robot, upload_path)
+        self.voice_agent = WakeWordConversationAgent(
             access_key=os.getenv("PICOVOICE_ACCESS_KEY"),
-            keyword_path= os.path.join(ASSETS_PATH,"./hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn"),
+            keyword_path=KEYWORD_PATH,
             transcription_method='openai',
             inference_method='openai',
             tts='openai'
         )
-        
-        # Initialize OpenAI client for action planning
-        self.openai_client = OpenAI(api_key=openai_api_key or os.getenv("OPENAI_API_KEY"))
-        self.system_prompt = system_prompt or """
-        # Spot Robot API
-        You are controlling a Spot robot that can navigate autonomously and interact through speech.
-        
-        Available actions:
-        1. navigate_to(waypoint_id, phrase): Move to a specific waypoint while speaking
-        2. say(phrase): Say something using text-to-speech
-        3. ask(question): Ask a question and wait for response
-        4. search(query): Search the environment using RAG system
-        
-        Be concise and use exactly one action per response.
-        """
-        
-        # Store current state
-        self._current_graph = None
-        self._current_edges = {}
-        self._current_waypoint_snapshots = {}
-        self._current_annotation_name_to_wp_id = {}
-        
-        # Power state
-        power_state = self._robot_state_client.get_robot_state().power_state
-        self._started_powered_on = (power_state.motor_power_state == power_state.STATE_ON)
-        self._powered_on = self._started_powered_on
-
-    async def process_voice_command(self, voice_input: str) -> str:
-        """Process voice command through LLM to get next action"""
-        # First search environment if needed
-        if "where" in voice_input.lower() or "find" in voice_input.lower():
-            search_results = self.rag_system.query_location(voice_input)
-            if search_results:
-                destination = search_results[0]['waypoint_id']
-                location_desc = search_results[0]['location']
-                return f'navigate_to("{destination}", "I found {location_desc}. Follow me!")'
-        
-        # Otherwise get next action from LLM
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"User said: {voice_input}\nEnter exactly one action:"}
-        ]
-        
-        response = await self.openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=100
+        self.rag = MultimodalRAGAnnotator(
+            graph_file_path=graph_file,
+            logger=logger,
+            snapshot_dir=snapshot_dir,
+            vector_db_path=vector_db_path
         )
         
-        return response.choices[0].message.content
-
-    async def execute_action(self, action: str):
-        """Execute the LLM-generated action"""
-        try:
-            # Safely evaluate the action
-            action = action.strip()
-            if action.startswith("navigate_to"):
-                waypoint_id = eval(action.split("(")[1].split(",")[0])
-                phrase = eval(",".join(action.split(",")[1:])[:-1])
-                await self._navigate_to(waypoint_id, phrase)
-            elif action.startswith("say"):
-                phrase = eval(action.split("(")[1][:-1])
-                self.conversation_agent.text_to_speech(phrase, tts='openai')
-            elif action.startswith("ask"):
-                question = eval(action.split("(")[1][:-1])
-                self.conversation_agent.text_to_speech(question, tts='openai')
-            elif action.startswith("search"):
-                query = eval(action.split("(")[1][:-1])
-                return self.rag_system.query_location(query)
-        except Exception as e:
-            logging.error(f"Error executing action: {e}")
-
-    async def _navigate_to(self, waypoint_id: str, phrase: Optional[str] = None):
-        """Navigate to a specific waypoint"""
-        if phrase:
-            self.conversation_agent.text_to_speech(phrase, tts='openai')
-            
-        nav_cmd_id = None
-        while True:
-            try:
-                nav_cmd_id = self._graph_nav_client.navigate_to(
-                    waypoint_id,
-                    1.0,
-                    leases=[self._lease.lease_proto],
-                    command_id=nav_cmd_id
-                )
-            except Exception as e:
-                logging.error(f"Navigation error: {e}")
-                break
-                
-            time.sleep(0.5)
-            status = self._graph_nav_client.navigation_feedback(nav_cmd_id)
-            if status.status == status.STATUS_REACHED_GOAL:
-                break
-            elif status.status in [status.STATUS_LOST, status.STATUS_STUCK]:
-                logging.error(f"Navigation failed: {status.status}")
-                break
+        # Action queue for coordinating between voice commands and actions
+        self.action_queue = queue.Queue()
+        
+        # Threading control
+        self.running = False
+        self.threads = []
 
     def start(self):
-        """Start the integrated system"""
-        try:
-            # Start wake word detection and conversation
-            self.conversation_agent.start()
-            
-            # Keep the main thread running
-            while True:
-                time.sleep(0.1)
-                
-        except KeyboardInterrupt:
-            self.stop()
-            
-    def stop(self):
-        """Stop the integrated system"""
-        self.conversation_agent.stop()
-        self._lease_keepalive.shutdown()
-        self._lease_client.return_lease(self._lease)
+        """Start all system components"""
+        self.running = True
+        
+        # Start voice agent
+        self.voice_agent.start()
+        
+        # Start navigation interface
+        self.nav_interface._list_graph_waypoint_and_edge_ids()
+        
+        # Start action processing thread
+        action_thread = threading.Thread(target=self._process_actions)
+        action_thread.daemon = True
+        action_thread.start()
+        self.threads.append(action_thread)
 
-    @staticmethod
-    def _get_map_paths(map_path: str):
-        """Get paths for graph and snapshots"""
-        from spotty.utils.common_utils import get_map_paths
-        return get_map_paths(map_path)
+    def stop(self):
+        """Stop all system components"""
+        self.running = False
+        self.voice_agent.stop()
+        self.nav_interface.return_lease()
+        
+        for thread in self.threads:
+            thread.join()
+
+    def _process_actions(self):
+        """Process actions from the queue"""
+        while self.running:
+            try:
+                action = self.action_queue.get(timeout=1.0)
+                self._execute_action(action)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error processing action: {e}")
+
+    def _execute_action(self, action: SpotAction):
+        """Execute a single action"""
+        if action.action_type == "navigate":
+            # Get waypoint ID and optional speech
+            waypoint_id = action.params["waypoint_id"]
+            speech = action.params.get("speech")
+            
+            if speech:
+                self.voice_agent.text_to_speech(speech, tts="openai")
+            
+            # Navigate to waypoint
+            self.nav_interface._navigate_to([waypoint_id])
+
+        elif action.action_type == "say":
+            # Text-to-speech
+            self.voice_agent.text_to_speech(action.params["text"], tts="openai")
+
+        elif action.action_type == "ask":
+            # Ask question and get response
+            self.voice_agent.text_to_speech(action.params["question"], tts="openai")
+            # Record and process response
+            audio_file = self.voice_agent.record_audio(max_recording_time=5)
+            if audio_file:
+                response = self.voice_agent.transcribe_audio_openai(audio_file)
+                return response
+
+        elif action.action_type == "search":
+            # Search using RAG
+            results = self.rag.query_location(
+                action.params["query"],
+                k=action.params.get("k", 3)
+            )
+            return results
+
+    def _get_tools(self):
+        """Get the list of available tools/functions for the model"""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "navigate_to",
+                    "description": "Navigate the robot to a specific location while speaking",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "waypoint_id": {
+                                "type": "string",
+                                "description": "The waypoint ID to navigate to"
+                            },
+                            "speech": {
+                                "type": "string",
+                                "description": "What to say while navigating"
+                            }
+                        },
+                        "required": ["waypoint_id", "speech"],
+                        "additionalProperties": False
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "say",
+                    "description": "Make the robot say something using text-to-speech",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "The text to speak"
+                            }
+                        },
+                        "required": ["text"],
+                        "additionalProperties": False
+                    }
+                }
+            },
+            {
+                "type": "function", 
+                "function": {
+                    "name": "search",
+                    "description": "Search the environment for locations or objects",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query"
+                            },
+                            "k": {
+                                "type": "integer",
+                                "description": "Number of results to return",
+                                "default": 3
+                            }
+                        },
+                        "required": ["query"],
+                        "additionalProperties": False
+                    }
+                }
+            }
+        ]
+
+    def process_voice_command(self, command: str) -> Optional[str]:
+        """Process voice command using OpenAI function calling"""
+        
+        # Call GPT with the tools
+        response = self.voice_agent.client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt_assistant},
+                {"role": "user", "content": command}
+            ],
+            tools=self._get_tools(),
+            tool_choice="auto"
+        )
+
+        # Get assistant's response
+        assistant_message = response.choices[0].message
+        
+        # Check if the model wants to call a function
+        if assistant_message.tool_calls:
+            tool_call = assistant_message.tool_calls[0]
+            function_name = tool_call.function.name
+            function_args = json.loads(tool_call.function.arguments)
+
+            # Create corresponding action
+            action = SpotAction(
+                action_type=function_name,
+                params=function_args
+            )
+            
+            # Add action to queue
+            self.action_queue.put(action)
+            
+            # Return appropriate response
+            if function_name == "search":
+                results = self._execute_action(action)
+                if results:
+                    best_result = results[0]
+                    nav_action = SpotAction(
+                        action_type="navigate",
+                        params={
+                            "waypoint_id": best_result["waypoint_id"],
+                            "speech": f"Taking you to {best_result['location']}."
+                        }
+                    )
+                    self.action_queue.put(nav_action)
+                    return f"Found {best_result['location']}. Navigating there now."
+                return "Location not found"
+            
+            return f"Executing {function_name} command"
+        
+        # If no function call, just return the assistant's response
+        return assistant_message.content
 
 def main():
-    """Main entry point"""
-    import argparse
+    # Initialize robot SDK connection
     from bosdyn.client import create_standard_sdk
-    from spotty.utils.robot_utils import auto_authenticate
+    from bosdyn.client.util import authenticate
     
-    parser = argparse.ArgumentParser(description="Integrated Spot System")
-    parser.add_argument("--hostname", required=False, default="192.168.80.3", help="Robot hostname")
-    parser.add_argument("--map-path", required=True, help="Path to map directory")
-    args = parser.parse_args()
+    sdk = create_standard_sdk('IntegratedSpotSystem')
+    robot = sdk.create_robot('ROBOT_IP')
+    authenticate(robot)
     
-    # Initialize SDK and robot
-    sdk = create_standard_sdk('IntegratedSpotClient')
-    robot = sdk.create_robot(args.hostname)
-    auto_authenticate(robot)
-    
-    # Create and start integrated system
+    # Initialize system
     system = IntegratedSpotSystem(
         robot=robot,
-        map_path=args.map_path
+        upload_path="./maps",
+        vector_db_path="./vector_db",
+        logger=None,  # Add your logger here
+        snapshot_dir="./snapshots",
+        graph_file="./maps/graph"
     )
     
     try:
         system.start()
-    except Exception as e:
-        logging.error(f"Error running integrated system: {e}")
-    finally:
+        print("System started. Press Ctrl+C to exit.")
+        
+        # Keep main thread running
+        while True:
+            pass
+            
+    except KeyboardInterrupt:
+        print("\nStopping system...")
         system.stop()
 
 if __name__ == "__main__":
