@@ -14,13 +14,10 @@ import pvporcupine
 import numpy as np
 import pygame
 from pvrecorder import PvRecorder
-from spotty.audio.system_prompts import  system_prompt_robin, system_prompt_assistant
 from dotenv import load_dotenv
 
 load_dotenv()  
 
-system_prompt=system_prompt_assistant
-# Optional local model imports
 try:
     from whispercpp import Whisper
     from llama_cpp import Llama
@@ -156,7 +153,7 @@ def transcribe_audio_local(file_path, model_size='tiny'):
     
     return transcribed_text
 
-def chat_with_openai(user_input):
+def chat_with_openai(user_input,system_prompt):
     """Sends the transcribed input to OpenAI Chat API and returns the response."""
     global chat_history
     
@@ -182,7 +179,7 @@ def chat_with_openai(user_input):
 
 
 
-def chat_with_local_llama(user_input, model_path="./models/7B/llama-model.gguf"):
+def chat_with_local_llama(user_input,system_prompt,model_path="./models/7B/llama-model.gguf",):
     """Sends the transcribed input to local LLaMA model and returns the response."""
     global chat_history
     
@@ -336,7 +333,8 @@ def text_to_speech(text,tts):
 
 class WakeWordConversationAgent:
     def __init__(self, 
-                 access_key, 
+                 access_key,
+                 system_prompt, 
                  keyword_path, 
                  transcription_method='openai', 
                  inference_method='openai', 
@@ -367,6 +365,7 @@ class WakeWordConversationAgent:
             frame_length=self.porcupine.frame_length
         )
         self.audio_device_index = audio_device_index
+        self.system_prompt = system_prompt
         
         # Configuration for transcription and chat
         self.transcription_method = transcription_method
@@ -460,9 +459,9 @@ class WakeWordConversationAgent:
                         else chat_with_openai
                     )
                     chat_response = (
-                        chat_func(transcribed_text, self.local_llama_model) 
+                        chat_func(transcribed_text, self.system_prompt, self.local_llama_model) 
                         if self.inference_method == 'local' 
-                        else chat_func(transcribed_text)
+                        else chat_func(transcribed_text,system_prompt=self.system_prompt)
                     )
                     print("\r" + " " * 20 + "\r", end='')  # Clear "Thinking..." text
                     print(f"🤖 Assistant: {chat_response}")
@@ -561,10 +560,11 @@ def main():
     args = parser.parse_args()
     initialize_pygame_mixer()
 
-    
+    from spotty.audio import system_prompt_assistant
     # Initialize and start the conversation agent
     agent = WakeWordConversationAgent(
         access_key=PICOVOICE_ACCESS_KEY,
+        system_prompt=system_prompt_assistant,
         keyword_path=get_abs_path(args.keyword_model),
         transcription_method=args.transcribe,
         inference_method=args.chat,
