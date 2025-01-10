@@ -20,7 +20,9 @@ def main(args):
     )
 
     # Update annotations and build RAG database
-    rag_annotator.update_annotations_with_rag()
+    if args.maybe_label:
+        logger.info("Updating annotations and building RAG database from scratch")
+        rag_annotator.update_annotations_with_rag()
     
     # Example query
     results = rag_annotator.query_location(
@@ -37,6 +39,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multimodal RAG Annotator")
     parser.add_argument("--map-path", type=str, help="Path to the map directory")
     parser.add_argument("--vector-db-path", type=str, default="vector_db", help="Path to the vector database")
+    parser.add_argument("--maybe-label", action="store_true", help="If set, the script will label the map with RAG")
     args = parser.parse_args()
 
     main(args)
