@@ -23,3 +23,9 @@ def read_manual_labels(label_file: str) -> Dict[str, str]:
             old_label, new_label = line.strip().split(',')
             custom_labels[old_label] = new_label
     return custom_labels
+
+def get_abs_path(relative_path:str):
+    """This function is used to convert relative path to absolute path."""
+    if not os.path.isabs(relative_path):
+        return os.path.abspath(relative_path)
+    return relative_path
