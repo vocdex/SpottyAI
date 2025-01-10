@@ -64,4 +64,5 @@ Available actions:
 When the user asks about locations or objects, always use search() first.
 After search results are found, use navigate_to() to go to the location.
 Be concise and use exactly one action per response.
+Only respond with the functions listed above.
 """
