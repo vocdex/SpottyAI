@@ -87,7 +87,8 @@ class GraphNavInterface(object):
             '7': self._navigate_route,
             '8': self._navigate_to_anchor,
             '9': self._clear_graph,
-            '10': self._navigate_to_by_annotation
+            '10': self._navigate_to_by_annotation,
+            '11': self._initialize_map
         }
 
     def _get_localization_state(self, *args):
@@ -472,6 +473,27 @@ class GraphNavInterface(object):
             if self._powered_on and not self._started_powered_on:
                 # Sit the robot down + power off after the navigation command is complete.
                 self.toggle_power(should_power_on=False)
+    
+    def _initialize_map(self, *args):
+        """Upload the map, localize to nearest fiducial, and list waypoints."""
+        print("Starting map initialization process...")
+        
+        # Step 1: Upload the graph and snapshots
+        print("\n1. Uploading graph and snapshots...")
+        self._upload_graph_and_snapshots()
+        
+        # Step 2: Initialize localization to nearest fiducial
+        print("\n2. Initializing localization to nearest fiducial...")
+        self._set_initial_localization_fiducial()
+        
+        # Wait a bit for localization to complete
+        time.sleep(2.0)
+        
+        # Step 3: List waypoints and edges
+        print("\n3. Listing graph waypoints and edges...")
+        self._list_graph_waypoint_and_edge_ids()
+        
+        print("\nMap initialization complete!")
 
     def _clear_graph(self, *args):
         """Clear the state of the map on the robot, removing all waypoints and edges."""
@@ -578,6 +600,8 @@ class GraphNavInterface(object):
                 When yaw is not specified, an identity quaternion is used.
             (9) Clear the current graph.
             (10) Navigate to the most central waypoint with a given annotation.
+            (11) Initialize map (upload, localize to fiducial, and list waypoints).
+
             (q) Exit.
             """)
             try:

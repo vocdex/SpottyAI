@@ -19,7 +19,10 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-u', '--upload-filepath',
                         help='Full filepath to graph and snapshots to be uploaded.', required=True)
+    parser.add_argument('hostname', help='The hostname or IP address of the Spot robot.')
+
     bosdyn.client.util.add_base_arguments(parser)
+    
     options = parser.parse_args(argv)
 
     # Setup and authenticate the robot.
