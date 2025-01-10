@@ -1,8 +1,9 @@
 import argparse
 import os
 from spotty import ASSETS_PATH
-from spotty.audio import initialize_pygame_mixer,WakeWordConversationAgent, get_abs_path
+from spotty.audio import initialize_pygame_mixer,WakeWordConversationAgent
 from spotty.audio import system_prompt_assistant
+from spotty.utils.common_utils import get_abs_path
 from dotenv import load_dotenv
 load_dotenv()  
 

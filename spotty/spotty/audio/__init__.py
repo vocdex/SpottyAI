@@ -1,2 +1,2 @@
-from .spot_assistant import WakeWordConversationAgent, initialize_pygame_mixer, get_abs_path
+from .spot_assistant import WakeWordConversationAgent, initialize_pygame_mixer
 from .system_prompts import *
