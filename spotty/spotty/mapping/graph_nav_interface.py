@@ -474,10 +474,13 @@ class GraphNavInterface(object):
                 # Sit the robot down + power off after the navigation command is complete.
                 self.toggle_power(should_power_on=False)
     
-    def _initialize_map(self, *args):
+    def _initialize_map(self, maybe_clear=False):
         """Upload the map, localize to nearest fiducial, and list waypoints."""
         print("Starting map initialization process...")
-        
+        # Step 0: Clear the graph if requested
+        if maybe_clear:
+            print("\n0. Clearing the graph...")
+            self._clear_graph()
         # Step 1: Upload the graph and snapshots
         print("\n1. Uploading graph and snapshots...")
         self._upload_graph_and_snapshots()

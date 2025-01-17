@@ -1,4 +1,5 @@
-HOSTNAME = "192.168.80.3"
+# HOSTNAME = "192.168.80.3"
+HOSTNAME = "192.168.182.93" # Via mobile hotspot
 USERNAME = "user"
 PASSWORD = "c037gcf6n93f"
 

@@ -14,6 +14,7 @@ import numpy as np
 import pygame
 from pvrecorder import PvRecorder
 from dotenv import load_dotenv
+from typing import Dict, Any
 load_dotenv()  
 
 FORMAT = pyaudio.paInt16
@@ -180,7 +181,7 @@ def chat_with_openai(user_input,system_prompt):
 
 
 
-def chat_with_local_llama(user_input,system_prompt,model_path="./models/7B/llama-model.gguf",):
+def chat_with_local_llama(user_input, system_prompt, model_path="./models/7B/llama-model.gguf",):
     """Sends the transcribed input to local LLaMA model and returns the response."""
     global chat_history
     
@@ -189,6 +190,7 @@ def chat_with_local_llama(user_input,system_prompt,model_path="./models/7B/llama
 
     # Construct the prompt with chat history
     prompt = f"System: {system_prompt}\n"
+    print("System: ", system_prompt)
     prompt += "".join([f"{'Human' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}\n" for msg in chat_history])
     prompt += f"Human: {user_input}\nAssistant: "
     
@@ -264,7 +266,7 @@ def play_beep(type="start"):
     except Exception as e:
         print(f"Error playing beep: {e}")
 
-def text_to_speech(text,tts):
+def text_to_speech(text,tts='openai'):
     """
     Converts text to speech using OpenAI TTS API.
     
@@ -340,7 +342,7 @@ class WakeWordConversationAgent:
                  transcription_method='openai', 
                  inference_method='openai', 
                  local_whisper_model='tiny', 
-                 local_llama_model=None,
+                 local_llama_model="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/models/mistral-7b-instruct-v0.1.Q4_K_S.gguf",
                  tts='openai',
                  audio_device_index=-1):
         """
@@ -383,6 +385,40 @@ class WakeWordConversationAgent:
         # Queues for thread communication
         self.wake_word_queue = queue.Queue()
         self.stop_detection_event = threading.Event()
+        self.command_queue = None # will be set by the main program
+    
+    def _extract_command(self, response: str) -> Dict[str, Any]:
+        """Extract command and parameters from LLM response."""
+        try:
+            # Parse the response to identify the command and parameters
+            if "navigate_to(" in response:
+                cmd = "navigate_to"
+                # Extract waypoint_id and phrase
+                parts = response.split("navigate_to(")[1].split(")")[0].split(",")
+                params = {
+                    "waypoint_id": parts[0].strip(),
+                    "phrase": parts[1].strip() if len(parts) > 1 else ""
+                }
+            elif "say(" in response:
+                cmd = "say"
+                phrase = response.split("say(")[1].split(")")[0].strip('"')
+                params = {"phrase": phrase}
+            elif "ask(" in response:
+                cmd = "ask"
+                question = response.split("ask(")[1].split(")")[0].strip('"')
+                params = {"question": question}
+            elif "search(" in response:
+                cmd = "search"
+                query = response.split("search(")[1].split(")")[0].strip('"')
+                params = {"query": query}
+            else:
+                raise ValueError(f"Unknown command in response: {response}")
+            
+            print(f"Extracted command: {cmd} with parameters: {params}")
+            return {"command": cmd, "parameters": params}
+        except Exception as e:
+            print(f"Error extracting command: {e}")
+            return {"command": "say", "parameters": {"phrase": "I'm sorry, I couldn't process that command."}}
 
     
     def _wake_word_detection_loop(self):
@@ -450,7 +486,7 @@ class WakeWordConversationAgent:
                         if self.transcription_method == 'local' 
                         else transcribe_func(TEMP_FILE)
                     )
-                    print("\r" + " " * 20 + "\r", end='')  # Clear "Transcribing..." text
+                    print("\r" + " " * 20 + "\r", end='')
                     print(f">> You said: {transcribed_text}")
                     
                     # Generate chat response
@@ -462,13 +498,20 @@ class WakeWordConversationAgent:
                     chat_response = (
                         chat_func(transcribed_text, self.system_prompt, self.local_llama_model) 
                         if self.inference_method == 'local' 
-                        else chat_func(transcribed_text,system_prompt=self.system_prompt)
+                        else chat_func(transcribed_text, system_prompt=self.system_prompt)
                     )
-                    print("\r" + " " * 20 + "\r", end='')  # Clear "Thinking..." text
+                    print("\r" + " " * 20 + "\r", end='')
                     print(f"🤖 Assistant: {chat_response}")
                     
-                    # Text to speech
-                    text_to_speech(chat_response,tts=self.tts)
+                    # Parse and queue the command
+                    if self.command_queue is not None:
+                        cmd_dict = self._extract_command(chat_response)
+                        print(f"Queueing command: {cmd_dict}")
+                        self.command_queue.put(cmd_dict)
+                    
+                    # Text to speech only for non-command responses
+                    if not any(cmd in chat_response for cmd in ['navigate_to', 'search', 'ask']):
+                        text_to_speech(chat_response, tts=self.tts)
                 
                 # Reset for next wake word detection
                 self.stop_detection_event.clear()

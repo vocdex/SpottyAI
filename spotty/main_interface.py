@@ -1,7 +1,11 @@
 import os
-from typing import Optional, List, Dict
+import time
+
+from typing import Optional, List, Dict, Any
 import threading
-import queue
+import bosdyn.client
+import logging
+from queue import Queue, Empty
 from dataclasses import dataclass
 
 from spotty.audio import WakeWordConversationAgent
@@ -10,270 +14,243 @@ from spotty.annotation import MultimodalRAGAnnotator
 from dotenv import load_dotenv
 from spotty import ASSETS_PATH
 from spotty.audio import system_prompt_assistant
+from spotty.utils.common_utils import get_map_paths
+from spotty.utils.robot_utils import auto_authenticate, HOSTNAME
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 KEYWORD_PATH = os.path.join(ASSETS_PATH, "/hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn")
 
-@dataclass
-class SpotAction:
-    """Represents an action for Spot to take"""
-    action_type: str  # 'navigate', 'say', 'ask', 'search'
-    params: Dict
 
-class IntegratedSpotSystem:
+
+
+class UnifiedSpotInterface:
     def __init__(
         self,
         robot,
-        upload_path: str,
+        map_path: str,
         vector_db_path: str,
-        logger,
-        snapshot_dir: str,
-        graph_file: str
+        system_prompt: str,
+        keyword_path: str,
+        transcription_method: str = 'openai',
+        inference_method: str = 'openai',
+        tts: str = 'openai',
+        audio_device_index: int = -1,
+        debug: bool = False
     ):
-        # Initialize components
-        self.robot = robot
-        self.nav_interface = GraphNavInterface(robot, upload_path)
-        self.voice_agent = WakeWordConversationAgent(
-            access_key=os.getenv("PICOVOICE_ACCESS_KEY"),
-            keyword_path=KEYWORD_PATH,
-            transcription_method='openai',
-            inference_method='openai',
-            tts='openai'
+        # Set up logging
+        logging.basicConfig(
+            level=logging.DEBUG if debug else logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        self.rag = MultimodalRAGAnnotator(
-            graph_file_path=graph_file,
-            logger=logger,
-            snapshot_dir=snapshot_dir,
-            vector_db_path=vector_db_path
-        )
+        """Initialize the unified interface for Spot robot control."""
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Initializing Unified Spot Interface...")
+        self.command_queue = Queue()
+
         
-        # Action queue for coordinating between voice commands and actions
-        self.action_queue = queue.Queue()
+        try:
+            self.logger.info("Initializing GraphNav...")
+            # Initialize GraphNav
+            self.graph_nav = GraphNavInterface(robot, map_path)
+            # Initialize map
+            self.graph_nav._initialize_map(maybe_clear=False)
+            self.logger.info("GraphNav initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
+            raise
         
-        # Threading control
-        self.running = False
-        self.threads = []
+        try:
+            self.logger.info("Initializing RAG system...")
+            # Initialize RAG system
+            graph_file_path, snapshot_dir, _ = get_map_paths(map_path)
+            self.rag_system = MultimodalRAGAnnotator(
+                graph_file_path=graph_file_path,
+                logger=self.logger,
+                snapshot_dir=snapshot_dir,
+                vector_db_path=vector_db_path,
+                load_clip=False
+            )
+            self.logger.info("RAG system initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize RAG system: {str(e)}")
+            raise
+        
+        try:
+            self.logger.info("Initializing Voice Interface...")
+            # Check for required environment variables
+            picovoice_key = os.getenv("PICOVOICE_ACCESS_KEY")
+            if not picovoice_key:
+                raise ValueError("PICOVOICE_ACCESS_KEY environment variable not set")
+            
+            # Initialize Voice Interface
+            self.voice_interface = WakeWordConversationAgent(
+                access_key=picovoice_key,
+                system_prompt=system_prompt,
+                keyword_path=keyword_path,
+                transcription_method=transcription_method,
+                inference_method=inference_method,
+                tts=tts,
+                audio_device_index=audio_device_index
+            )
+            self.voice_interface.command_queue = self.command_queue
+
+            self.logger.info("Voice Interface initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Voice Interface: {str(e)}")
+            raise
+        
+        # Command queue for handling navigation and queries
+        self.command_thread = None
+        self.is_running = False
+
+    def _extract_command(self, response: str) -> Dict[str, Any]:
+        """Extract command and parameters from LLM response."""
+        try:
+            # Parse the response to identify the command and parameters
+            if "navigate_to(" in response:
+                cmd = "navigate_to"
+                # Extract waypoint_id and phrase
+                parts = response.split("navigate_to(")[1].split(")")[0].split(",")
+                params = {
+                    "waypoint_id": parts[0].strip(),
+                    "phrase": parts[1].strip() if len(parts) > 1 else ""
+                }
+            elif "say(" in response:
+                cmd = "say"
+                phrase = response.split("say(")[1].split(")")[0]
+                params = {"phrase": phrase}
+            elif "ask(" in response:
+                cmd = "ask"
+                question = response.split("ask(")[1].split(")")[0]
+                params = {"question": question}
+            elif "search(" in response:
+                cmd = "search"
+                query = response.split("search(")[1].split(")")[0]
+                params = {"query": query}
+            else:
+                raise ValueError(f"Unknown command in response: {response}")
+            
+            return {"command": cmd, "parameters": params}
+        except Exception as e:
+            self.logger.error(f"Error extracting command: {e}")
+            return {"command": "say", "parameters": {"phrase": "I'm sorry, I couldn't process that command."}}
+
+    def _execute_command(self, cmd_dict: Dict[str, Any]):
+        """Execute the parsed command."""
+        command = cmd_dict["command"]
+        params = cmd_dict["parameters"]
+        from spotty.audio.spot_assistant import text_to_speech
+
+        try:
+            if command == "navigate_to":
+                assert "waypoint_id" in params, "Waypoint ID not provided"
+                assert type(params["waypoint_id"]) == str, "Waypoint ID must be a string"
+                text_to_speech(params["phrase"])
+                destination_waypoint_tuple = (params["waypoint_id"], None)
+                is_finished = self.graph_nav._navigate_to(destination_waypoint_tuple)
+                if is_finished:
+                    text_to_speech(f"You have arrived at your destination")
+                    
+            elif command == "say":
+                text_to_speech(params["phrase"])
+                
+            elif command == "ask":
+                from spotty.audio.spot_assistant import play_beep,record_audio
+                # Play a sound to indicate listening
+                self.command_queue.put({"command": "say", "parameters": {"phrase": params["question"]}})
+                # Also record the response and add it to the chat history
+                    
+            elif command == "search":
+                results = self.rag_system.query_location(params["query"], k=3, distance_threshold=2.0)
+
+                if results:
+                    # Get the closest matching waypoint
+                    closest_waypoint = results[0]["waypoint_id"]
+                    description = results[0]["description"]
+                    print("Closest waypoint:", closest_waypoint) # Working until here
+                    response = f"I found what you're looking for. Let me take you there"
+                    self.command_queue.put({
+                        "command": "navigate_to",
+                        "parameters": {
+                            "waypoint_id": closest_waypoint,
+                            "phrase": response
+                        }
+
+                    })
+                else:
+                    self.command_queue.put({
+                        "command": "say",
+                        "parameters": {"phrase": "I couldn't find anything matching your search."}
+                    })
+                    
+        except Exception as e:
+            self.logger.error(f"Error executing command: {e}")
+            self.command_queue.put({
+                "command": "say",
+                "parameters": {"phrase": f"I encountered an error: {str(e)}"}
+            })
+
+    def _command_processing_loop(self):
+        """Main loop for processing commands."""
+        self.logger.info("Starting command processing loop")
+        while self.is_running:
+            try:
+                self.logger.debug("Waiting for next command...")
+                cmd_dict = self.command_queue.get(timeout=2.0)
+                self.logger.info(f"Received command: {cmd_dict}")
+                self._execute_command(cmd_dict)
+            except Empty:
+                continue  # No commands in queue, continue listening
+            except Exception as e:
+                self.logger.error(f"Error in command processing loop: {e}")
 
     def start(self):
-        """Start all system components"""
-        self.running = True
+        """Start the unified interface."""
+        self.is_running = True
         
-        # Start voice agent
-        self.voice_agent.start()
+        # Start command processing thread
+        self.command_thread = threading.Thread(target=self._command_processing_loop)
+        self.command_thread.daemon = True
+        self.command_thread.start()
         
-        # Start navigation interface
-        self.nav_interface._list_graph_waypoint_and_edge_ids()
+        # Start voice interface
+        self.voice_interface.start()
         
-        # Start action processing thread
-        action_thread = threading.Thread(target=self._process_actions)
-        action_thread.daemon = True
-        action_thread.start()
-        self.threads.append(action_thread)
+        self.logger.info("Unified Spot Interface started")
 
     def stop(self):
-        """Stop all system components"""
-        self.running = False
-        self.voice_agent.stop()
-        self.nav_interface.return_lease()
+        """Stop the unified interface."""
+        self.is_running = False
+        self.voice_interface.stop()
         
-        for thread in self.threads:
-            thread.join()
-
-    def _process_actions(self):
-        """Process actions from the queue"""
-        while self.running:
-            try:
-                action = self.action_queue.get(timeout=1.0)
-                self._execute_action(action)
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Error processing action: {e}")
-
-    def _execute_action(self, action: SpotAction):
-        """Execute a single action"""
-        if action.action_type == "navigate":
-            # Get waypoint ID and optional speech
-            waypoint_id = action.params["waypoint_id"]
-            speech = action.params.get("speech")
-            
-            if speech:
-                self.voice_agent.text_to_speech(speech, tts="openai")
-            
-            # Navigate to waypoint
-            self.nav_interface._navigate_to([waypoint_id])
-
-        elif action.action_type == "say":
-            # Text-to-speech
-            self.voice_agent.text_to_speech(action.params["text"], tts="openai")
-
-        elif action.action_type == "ask":
-            # Ask question and get response
-            self.voice_agent.text_to_speech(action.params["question"], tts="openai")
-            # Record and process response
-            audio_file = self.voice_agent.record_audio(max_recording_time=5)
-            if audio_file:
-                response = self.voice_agent.transcribe_audio_openai(audio_file)
-                return response
-
-        elif action.action_type == "search":
-            # Search using RAG
-            results = self.rag.query_location(
-                action.params["query"],
-                k=action.params.get("k", 3)
-            )
-            return results
-
-    def _get_tools(self):
-        """Get the list of available tools/functions for the model"""
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "navigate_to",
-                    "description": "Navigate the robot to a specific location while speaking",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "waypoint_id": {
-                                "type": "string",
-                                "description": "The waypoint ID to navigate to"
-                            },
-                            "speech": {
-                                "type": "string",
-                                "description": "What to say while navigating"
-                            }
-                        },
-                        "required": ["waypoint_id", "speech"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "say",
-                    "description": "Make the robot say something using text-to-speech",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "text": {
-                                "type": "string",
-                                "description": "The text to speak"
-                            }
-                        },
-                        "required": ["text"],
-                        "additionalProperties": False
-                    }
-                }
-            },
-            {
-                "type": "function", 
-                "function": {
-                    "name": "search",
-                    "description": "Search the environment for locations or objects",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query"
-                            },
-                            "k": {
-                                "type": "integer",
-                                "description": "Number of results to return",
-                                "default": 3
-                            }
-                        },
-                        "required": ["query"],
-                        "additionalProperties": False
-                    }
-                }
-            }
-        ]
-
-    def process_voice_command(self, command: str) -> Optional[str]:
-        """Process voice command using OpenAI function calling"""
+        if self.command_thread:
+            self.command_thread.join()
         
-        # Call GPT with the tools
-        response = self.voice_agent.client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_prompt_assistant},
-                {"role": "user", "content": command}
-            ],
-            tools=self._get_tools(),
-            tool_choice="auto"
-        )
+        self.logger.info("Unified Spot Interface stopped")
 
-        # Get assistant's response
-        assistant_message = response.choices[0].message
         
-        # Check if the model wants to call a function
-        if assistant_message.tool_calls:
-            tool_call = assistant_message.tool_calls[0]
-            function_name = tool_call.function.name
-            function_args = json.loads(tool_call.function.arguments)
-
-            # Create corresponding action
-            action = SpotAction(
-                action_type=function_name,
-                params=function_args
-            )
-            
-            # Add action to queue
-            self.action_queue.put(action)
-            
-            # Return appropriate response
-            if function_name == "search":
-                results = self._execute_action(action)
-                if results:
-                    best_result = results[0]
-                    nav_action = SpotAction(
-                        action_type="navigate",
-                        params={
-                            "waypoint_id": best_result["waypoint_id"],
-                            "speech": f"Taking you to {best_result['location']}."
-                        }
-                    )
-                    self.action_queue.put(nav_action)
-                    return f"Found {best_result['location']}. Navigating there now."
-                return "Location not found"
-            
-            return f"Executing {function_name} command"
-        
-        # If no function call, just return the assistant's response
-        return assistant_message.content
-
 def main():
-    # Initialize robot SDK connection
-    from bosdyn.client import create_standard_sdk
-    from bosdyn.client.util import authenticate
-    
-    sdk = create_standard_sdk('IntegratedSpotSystem')
-    robot = sdk.create_robot('ROBOT_IP')
-    authenticate(robot)
-    
-    # Initialize system
-    system = IntegratedSpotSystem(
+
+    sdk = bosdyn.client.create_standard_sdk('UnifiedSpotInterface')
+    robot = sdk.create_robot(HOSTNAME)
+    auto_authenticate(robot)
+
+    # Create the unified interface
+    interface = UnifiedSpotInterface(
         robot=robot,
-        upload_path="./maps",
-        vector_db_path="./vector_db",
-        logger=None,  # Add your logger here
-        snapshot_dir="./snapshots",
-        graph_file="./maps/graph"
+        map_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/maps/chair_graph_images",
+        vector_db_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/rag_db/vector_db_chair",
+        system_prompt=system_prompt_assistant,
+        keyword_path="/Users/shuk/Desktop/spot/practical-seminar-mobile-robotics/spotty/assets/hey_spot_version_02/Hey-Spot_en_mac_v3_0_0.ppn"
     )
-    
-    try:
-        system.start()
-        print("System started. Press Ctrl+C to exit.")
-        
-        # Keep main thread running
-        while True:
-            pass
-            
-    except KeyboardInterrupt:
-        print("\nStopping system...")
-        system.stop()
+
+    # Start the interface
+    interface.start()
+
+    # Keep main thread running
+    while True:
+        pass
 
 if __name__ == "__main__":
     main()
