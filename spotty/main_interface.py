@@ -48,18 +48,16 @@ class UnifiedSpotInterface:
         
         try:
             self.logger.info("Initializing GraphNav...")
-            # Initialize GraphNav
             self.graph_nav = GraphNavInterface(robot, map_path)
-            # Initialize map
             self.graph_nav._initialize_map(maybe_clear=False)
             self.logger.info("GraphNav initialized successfully")
+
         except Exception as e:
             self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
             raise
         
         try:
             self.logger.info("Initializing RAG system...")
-            # Initialize RAG system
             graph_file_path, snapshot_dir, _ = get_map_paths(map_path)
             self.rag_system = MultimodalRAGAnnotator(
                 graph_file_path=graph_file_path,
@@ -80,7 +78,6 @@ class UnifiedSpotInterface:
             if not picovoice_key:
                 raise ValueError("PICOVOICE_ACCESS_KEY environment variable not set")
             
-            # Initialize Voice Interface
             self.voice_interface = WakeWordConversationAgent(
                 access_key=picovoice_key,
                 system_prompt=system_prompt,
