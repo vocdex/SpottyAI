@@ -17,6 +17,8 @@ import cv2
 import numpy as np
 from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import map_pb2
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 class AnnotationError(Exception):
     """Custom exception for annotation-related errors."""

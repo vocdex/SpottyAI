@@ -24,10 +24,9 @@ def main(args):
         logger.info("Updating annotations and building RAG database from scratch")
         rag_annotator.update_annotations_with_rag()
     
-    # Example query
     results = rag_annotator.query_location(
     "Where do you see kitchen setup?",
-    k=5,                    # Get top 5 initial matches
+    k=1,                    # Get top 5 initial matches
     distance_threshold=3.0  # Only keep results with L2 distance < 2.0
     )
     rag_annotator.print_query_results(results, max_results=5)

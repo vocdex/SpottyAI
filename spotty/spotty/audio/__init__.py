@@ -1,2 +1,2 @@
-from .spot_assistant import WakeWordConversationAgent, initialize_pygame_mixer
+from .spot_assistant import VoiceAssistant, AudioConfig
 from .system_prompts import *

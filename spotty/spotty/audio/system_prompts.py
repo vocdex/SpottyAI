@@ -57,7 +57,7 @@ You are controlling a Spot robot that can navigate autonomously and interact thr
 
 Available actions:
 1. navigate_to(waypoint_id, phrase): Move to a specific waypoint while speaking
-2. say(phrase): Say something using text-to-speech
+2. say(phrase): Say something using text-to-speech. You can use this to respond to user queries.
 3. ask(question): Ask a question and wait for response
 4. search(query): Search the environment using RAG system and pass waypoint_id to navigate_to() (handled inside search())
 

@@ -63,8 +63,6 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
             empty_docs,
             self.embeddings
         )
-        
-        
         return vectorstore
     
 
@@ -115,7 +113,7 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
                         ]
                     }
                 ],
-                max_tokens=300
+                max_tokens=150
             )
             
             return response.choices[0].message.content
@@ -161,7 +159,6 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         self.vector_store.add_documents([document])
         
         # Save FAISS index
-        faiss_index_path = os.path.join(self.vector_db_path, "index.faiss")
         self.vector_store.save_local(self.vector_db_path)
         
         # Log the save operation
@@ -185,8 +182,10 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         Enhanced annotation update using both CLIP and GPT-4o-mini with RAG storage.
         """
         self.logger.info("Starting multimodal RAG annotation...")
-        
+        print("Loaded graph with", len(self.graph.waypoints), "waypoints")
+        breakpoint()
         for waypoint in self.graph.waypoints:
+            print("Processing waypoint", waypoint.id)
             snapshot_path = os.path.join(self.snapshot_dir, waypoint.snapshot_id)
             
             if not os.path.exists(snapshot_path):
@@ -199,8 +198,8 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
                 with open(snapshot_path, 'rb') as f:
                     snapshot.ParseFromString(f.read())
                 
-                # Get location using CLIP
-                location = self.classify_waypoint_location(snapshot)
+                # Get location from waypoint.annotations.name
+                location = waypoint.annotations.name
                 
                 # Process each camera image with GPT-4o-mini
                 scene_descriptions = []

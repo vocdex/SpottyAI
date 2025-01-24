@@ -320,6 +320,7 @@ class GraphNavInterface(object):
             # Sit the robot down + power off after the navigation command is complete.
             self.toggle_power(should_power_on=False)
     
+        return is_finished
     
     def _navigate_to_by_annotation(self, *args):
         """Navigate to the most central waypoint with a given annotation."""
