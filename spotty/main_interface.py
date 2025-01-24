@@ -1,12 +1,9 @@
 import os
-import time
-
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any
 import threading
 import bosdyn.client
 import logging
 from queue import Queue, Empty
-from dataclasses import dataclass
 
 from spotty.audio import WakeWordConversationAgent
 from spotty.mapping import GraphNavInterface
