@@ -174,7 +174,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--map_path', required=True, help='Path to the map directory')
-    parser.add_argument('--waypoint_id', help='Specific waypoint ID to display')
+    parser.add_argument('--map-path', required=True, help='Path to the map directory')
+    parser.add_argument('--waypoint-id', help='Specific waypoint ID to display')
     args = parser.parse_args()
     main(args)
