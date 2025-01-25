@@ -25,8 +25,8 @@ def main(args):
         rag_annotator.update_annotations_with_rag()
     
     results = rag_annotator.query_location(
-    "Where do you see kitchen setup?",
-    k=1,                    # Get top 5 initial matches
+    "What is inside the black box?",
+    k=3,                    # Get top 5 initial matches
     distance_threshold=3.0  # Only keep results with L2 distance < 2.0
     )
     rag_annotator.print_query_results(results, max_results=5)
