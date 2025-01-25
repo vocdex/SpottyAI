@@ -337,7 +337,41 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         ]
         
         return sorted(filtered_results, key=lambda x: x['distance'])
-
+    
+    def get_waypoint_annotations(self, waypoint_id: str) -> Optional[Dict]:
+        """
+        Retrieve annotations for a specific waypoint by exact ID match.
+        
+        Args:
+            waypoint_id: The exact waypoint ID to search for
+            
+        Returns:
+            Optional[Dict]: Dictionary containing all annotations for the waypoint,
+                        or None if waypoint not found
+        """
+        try:
+            # Search through all documents in the vector store
+            all_docs = self.vector_store.docstore._dict
+            
+            for doc_id, doc in all_docs.items():
+                # Check if this document's metadata contains our waypoint_id
+                if doc.metadata.get('waypoint_id') == waypoint_id:
+                    return {
+                        'waypoint_id': waypoint_id,
+                        'location': doc.metadata.get('location'),
+                        'coordinates': doc.metadata.get('coordinates'),
+                        'timestamp': doc.metadata.get('timestamp'),
+                        'views': doc.metadata.get('views', {}),
+                        'full_description': doc.page_content
+                    }
+            
+            self.logger.warning(f"No annotations found for waypoint ID: {waypoint_id}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error retrieving annotations for waypoint {waypoint_id}: {e}")
+            self.logger.exception(e)
+            return None
     def print_query_results(self, results: List[Dict], max_results: int = 3):
         """
         Print results with complete information for each view.
