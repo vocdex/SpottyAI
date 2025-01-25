@@ -24,7 +24,8 @@ from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
 from spotty.utils import graph_nav_utils
-
+from spotty.mapping import WaypointNavigator, NavigationCommand, FarthestWaypointStrategy, ClosestWaypointStrategy
+from typing import List, Tuple
 
 class GraphNavInterface(object):
     """GraphNav service command line interface."""
@@ -474,6 +475,104 @@ class GraphNavInterface(object):
             if self._powered_on and not self._started_powered_on:
                 # Sit the robot down + power off after the navigation command is complete.
                 self.toggle_power(should_power_on=False)
+    
+
+    def _find_nearest_farthest_waypoints(self, current_waypoint_id:str, matching_waypoints:List[str]) -> Tuple[str, str]:
+        """
+        Find the nearest and farthest waypoints from current position among matching waypoints.
+        Uses Dijkstra's algorithm to compute shortest paths in the graph.
+
+        Args:
+            current_waypoint_id (str): Current waypoint ID where the robot is located
+            matching_waypoints (List[str]): List of waypoint IDs that match the query criteria
+
+        Returns:
+            Tuple[str, str]: A tuple containing (closest_waypoint_id, farthest_waypoint_id)
+                            Returns (None, None) if current_waypoint_id is invalid or no path exists
+        """
+        if not current_waypoint_id or not matching_waypoints:
+            return None, None
+
+        if current_waypoint_id not in self._current_edges:
+            return None, None
+
+        # Initialize distances dictionary with infinity for all waypoints
+        distances = {waypoint_id: float('inf') for waypoint_id in self._current_edges.keys()}
+        distances[current_waypoint_id] = 0
+        
+        # Dictionary to keep track of visited nodes
+        visited = set()
+        
+        # Priority queue to store (distance, waypoint_id) pairs
+        import heapq
+        pq = [(0, current_waypoint_id)]
+        
+        while pq:
+            current_distance, current_id = heapq.heappop(pq)
+            
+            # Skip if we've already processed this waypoint
+            if current_id in visited:
+                continue
+                
+            visited.add(current_id)
+            
+            # Check neighbors through edges
+            for neighbor_id in self._current_edges[current_id]:
+                if neighbor_id not in visited:
+                    # Get edge between current and neighbor
+                    edge = self._match_edge(self._current_edges, current_id, neighbor_id)
+                    if not edge:
+                        continue
+                        
+                    # Calculate new distance (assuming uniform edge weights of 1)
+                    # You could modify this to use actual edge distances if available
+                    new_distance = distances[current_id] + 1
+                    
+                    if new_distance < distances[neighbor_id]:
+                        distances[neighbor_id] = new_distance
+                        heapq.heappush(pq, (new_distance, neighbor_id))
+        
+        # Filter distances for only matching waypoints and find min/max
+        matching_distances = {wp: distances[wp] for wp in matching_waypoints if wp in distances}
+        
+        if not matching_distances:
+            return None, None
+            
+        # Find closest and farthest among reachable matching waypoints
+        closest_wp = min(matching_distances.items(), key=lambda x: x[1])[0]
+        farthest_wp = max(matching_distances.items(), key=lambda x: x[1])[0]
+        
+        return closest_wp, farthest_wp
+    
+
+    def navigate_to_closest_waypoint(self, matching_waypoints: List[str]) -> NavigationResult:
+        """
+        Navigate to the closest waypoint from the current position among matching waypoints.
+        
+        Args:
+            matching_waypoints: List of waypoint IDs that match the query criteria
+        
+        Returns:
+            NavigationResult indicating success/failure and details
+        """
+        navigator = WaypointNavigator(self)
+        command = NavigationCommand(ClosestWaypointStrategy(), matching_waypoints)
+        return navigator.execute_navigation(command)
+
+    def navigate_to_farthest_waypoint(self, matching_waypoints: List[str]) -> NavigationResult:
+        """
+        Navigate to the farthest waypoint from the current position among matching waypoints.
+        
+        Args:
+            matching_waypoints: List of waypoint IDs that match the query criteria
+        
+        Returns:
+            NavigationResult indicating success/failure and details
+        """
+        navigator = WaypointNavigator(self)
+        command = NavigationCommand(FarthestWaypointStrategy(), matching_waypoints)
+        return navigator.execute_navigation(command)
+    
     
     def _initialize_map(self, maybe_clear=False):
         """Upload the map, localize to nearest fiducial, and list waypoints."""
