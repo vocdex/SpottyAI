@@ -56,7 +56,7 @@ docs/_build/
 *.jpg
 *.env
 *.wav
-*rag_db
+*database
 *.mp3
 *models/
 

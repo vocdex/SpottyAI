@@ -24,7 +24,7 @@ from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
 from bosdyn.client.robot_state import RobotStateClient
 from spotty.utils import graph_nav_utils
-from spotty.mapping import WaypointNavigator, NavigationCommand, FarthestWaypointStrategy, ClosestWaypointStrategy
+from spotty.mapping.navigator import WaypointNavigator, NavigationCommand, FarthestWaypointStrategy, ClosestWaypointStrategy, NavigationResult
 from typing import List, Tuple
 
 class GraphNavInterface(object):

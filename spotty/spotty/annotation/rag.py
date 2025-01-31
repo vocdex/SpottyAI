@@ -372,6 +372,8 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
             self.logger.error(f"Error retrieving annotations for waypoint {waypoint_id}: {e}")
             self.logger.exception(e)
             return None
+        
+
     def print_query_results(self, results: List[Dict], max_results: int = 3):
         """
         Print results with complete information for each view.
@@ -385,7 +387,7 @@ class MultimodalRAGAnnotator(ClipAnnotationUpdater):
         for i, result in enumerate(results[:max_results], 1):
             print(f"\n=== Result {i} (L2 Distance: {result['distance']:.3f}) ===")
             print(f"Waypoint ID: {result['waypoint_id']}")
-            print(f"Location: {result['location']}")
+            # print(f"Location: {result['location']}")
             
             # Parse and print the content by view
             content_sections = result['description'].split('\n\n')
