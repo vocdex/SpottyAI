@@ -11,7 +11,7 @@ import sys
 
 import bosdyn.client.channel
 from spotty.mapping.recording_interface import RecordingInterface
-from spotty.utils.common_utils import auto_authenticate
+from spotty.utils.robot_utils import auto_authenticate
 
 
 def main(argv):
@@ -21,6 +21,8 @@ def main(argv):
     parser.add_argument('-d', '--download-filepath',
                         help='Full filepath for where to download graph and snapshots.',
                         default=os.getcwd())
+    parser.add_argument('hostname', help='The hostname or IP address of the Spot robot.')
+
     options = parser.parse_args(argv)
 
     # Create robot object.
