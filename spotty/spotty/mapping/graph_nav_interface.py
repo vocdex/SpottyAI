@@ -285,7 +285,8 @@ class GraphNavInterface(object):
         destination_waypoint = graph_nav_utils.find_unique_waypoint_id(
             args[0][0], self._current_graph, self._current_annotation_name_to_wp_id)
         if not destination_waypoint:
-            # Failed to find the appropriate unique waypoint id for the navigation command.
+            # Failed to find the appropriate unique waypoint id for the navigation command
+            print("Failed to find the appropriate unique waypoint id for the navigation command.")
             return
         if not self.toggle_power(should_power_on=True):
             print("Failed to power on the robot, and cannot complete navigate to request.")
@@ -343,7 +344,7 @@ class GraphNavInterface(object):
         
         if not matching_waypoints:
             print(f"No waypoint found with annotation: {annotation_to_find}")
-            return
+            return 
         
         # Select the most central waypoint by finding the one with minimum total distance to other waypoints
         def calculate_centrality(waypoint):
@@ -411,6 +412,8 @@ class GraphNavInterface(object):
         # Power off if appropriate
         if self._powered_on and not self._started_powered_on:
             self.toggle_power(should_power_on=False)
+        
+        return is_finished
 
     def _navigate_route(self, *args):
         """Navigate through a specific route of waypoints."""

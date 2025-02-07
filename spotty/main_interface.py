@@ -128,6 +128,8 @@ class UnifiedSpotInterface:
             # Extract command and parameters from response
             if "navigate_to(" in response:
                 parts = response.split("navigate_to(")[1].split(")")[0].split(",")
+                # remove trailing quotation marks " from parts[0]
+                parts[0] = parts[0].strip('"')
                 self._handle_navigation(parts[0].strip(), parts[1].strip() if len(parts) > 1 else None)
             
             elif "say(" in response:
@@ -161,14 +163,21 @@ class UnifiedSpotInterface:
             self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
             raise
 
-    def _handle_navigation(self, waypoint_id: str, phrase: Optional[str] = None):
+    def _handle_navigation(self, waypoint_id: str, phrase: Optional[str] = None, search_query: Optional[str] = False):
         """Handle navigation to waypoint"""
         if phrase:
             self._handle_speech(phrase)
-            
+        
         # Execute navigation
         destination = (waypoint_id, None)
-        if self.graph_nav._navigate_to(destination):
+        is_successful = False
+        print(f"Destination: {destination}")
+        if search_query:
+            is_successful=self.graph_nav._navigate_to(destination)
+        else:
+            is_successful= self.graph_nav._navigate_to_by_annotation(destination)
+        
+        if is_successful:
             # Update state after successful navigation
             self.state.prev_waypoint_id = self.state.waypoint_id
             self.state.waypoint_id = waypoint_id
@@ -192,13 +201,15 @@ class UnifiedSpotInterface:
 
     def _handle_search(self, query: str):
         """Handle environment search using RAG"""
-        results = self.rag_system.query_location(query, k=3) # Get top 3 results
+        enhanced_query ="Where do you see a " + query + "?"
+        results = self.rag_system.query_location(enhanced_query, k=3)
         # Get the first result and navigate to it
         if results:
             result = results[0]
             self._handle_navigation(
                 result["waypoint_id"],
-                f"I found what you're looking for at {result['location']}. Let me take you there."
+                f"I found what you're looking for at {result['location']}. Let me take you there.",
+                search_query=True
             )
         else:
             self._handle_speech("I couldn't find anything matching your search.")
@@ -271,8 +282,8 @@ def main():
     
     interface = UnifiedSpotInterface(
         robot=robot,
-        map_path=os.path.join(MAP_PATH, "chair_v2"),
-        vector_db_path=os.path.join(RAG_DB_PATH, "chair_v2"),
+        map_path=os.path.join(MAP_PATH, "chair_v3"),
+        vector_db_path=os.path.join(RAG_DB_PATH, "chair_v3"),
         system_prompt=system_prompt_assistant,
         keyword_path=KEYWORD_PATH,
     )
