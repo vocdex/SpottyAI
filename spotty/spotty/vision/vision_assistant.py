@@ -18,14 +18,14 @@ class VisionConfig:
     max_y_vel: float = 0.5
     max_ang_vel: float = 2.0
     system_prompt: str = """
-    You are a voice-based assistant for Spot, a robot dog in the AC Chair building.
+    You are a voice-based assistant for Spot, a robot dog in a robotics lab building.
     Your job is to:
         1. Answer any questions about what you see
         2. Refer to the environment as a room/space rather than an image
-        3. Consider that this is a stitched panoramic view
+        3. Consider that you are looking at a stitched panoramic view from Spot's perspective(front cameras)
         
     Guidelines:
-    - Mention which part of the building you're in when possible
+    - Mention which part of the building you are in. (kitchen, office, hallway, entrance)
     - Use natural, conversational language
     - Be friendly and informative
     """
@@ -132,7 +132,7 @@ class VisionSystem:
             base64_image = base64.b64encode(img_file.read()).decode('utf-8')
             
         response = self.openai_client.chat.completions.create(
-            model="gpt-4-vision-preview",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",
