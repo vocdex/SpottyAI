@@ -11,9 +11,6 @@ import numpy as np
 import os
 import sys
 import vtk
-import tkinter as tk
-from tkinter import simpledialog
-
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.client.frame_helpers import *
 from bosdyn.client.math_helpers import *
@@ -21,64 +18,6 @@ from bosdyn.client.math_helpers import *
 This example shows how to load and view a graph nav map.
 """
 
-class WaypointPicker:
-    def __init__(self, renderer, graph, waypoint_objects, waypoint_text_actors):
-        self.renderer = renderer
-        self.graph = graph
-        self.waypoint_objects = waypoint_objects  # Dict of waypoint_id to vtkAssembly
-        self.waypoint_text_actors = waypoint_text_actors  # Dict of waypoint_id to vtkTextActor
-        
-        # Set up picker
-        self.picker = vtk.vtkPropPicker()
-        
-    def pick_waypoint(self, obj, event):
-        """Handle mouse click events to pick waypoints"""
-        clickPos = obj.GetEventPosition()
-        
-        # Perform pick operation
-        if self.picker.Pick(clickPos[0], clickPos[1], 0, self.renderer):
-            # Get the picked actor
-            picked_actor = self.picker.GetActor()
-            
-            # Find which waypoint was picked by checking assemblies
-            for waypoint_id, assembly in self.waypoint_objects.items():
-                if picked_actor in assembly.GetParts():
-                    self.edit_waypoint_label(waypoint_id)
-                    break
-    
-    def edit_waypoint_label(self, waypoint_id):
-        """Open dialog to edit waypoint label"""
-        # Create root window for dialog
-        root = tk.Tk()
-        root.withdraw()  # Hide the root window
-        
-        # Get current waypoint name
-        current_name = ""
-        for waypoint in self.graph.waypoints:
-            if waypoint.id == waypoint_id:
-                current_name = waypoint.annotations.name
-                break
-        
-        # Show dialog to get new name
-        new_name = simpledialog.askstring("Edit Waypoint Label", 
-                                        f"Enter new label for waypoint {waypoint_id}:",
-                                        initialvalue=current_name)
-        
-        if new_name is not None and new_name != current_name:
-            # Update waypoint annotation in graph
-            for waypoint in self.graph.waypoints:
-                if waypoint.id == waypoint_id:
-                    waypoint.annotations.name = new_name
-                    break
-            
-            # Update text actor
-            text_actor = self.waypoint_text_actors[waypoint_id]
-            text_actor.SetInput(new_name)
-            
-            # Request render update
-            self.renderer.GetRenderWindow().Render()
-        
-        root.destroy()
 
 def numpy_to_poly_data(pts):
     """
@@ -478,30 +417,28 @@ def create_graph_objects(current_graph, current_waypoint_snapshots, current_wayp
 
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--path', type=str, help='Path to map directory.')
+    parser.add_argument('--map-path', type=str, help='Path to map directory.')
     parser.add_argument('-a', '--anchoring', action='store_true',
                         help='Draw the map according to the anchoring (in seed frame).')
     options = parser.parse_args(argv)
     # Load the map from the given file.
     (current_graph, current_waypoints, current_waypoint_snapshots, current_edge_snapshots,
-     current_anchors, current_anchored_world_objects) = load_map(options.path)
+     current_anchors, current_anchored_world_objects) = load_map(options.map_path)
 
     # Create the renderer.
     renderer = vtk.vtkRenderer()
     renderer.SetBackground(0.05, 0.1, 0.15)
 
     if options.anchoring:
-        avg_pos = create_anchored_graph_objects(...)
+        avg_pos,waypoint_objects, waypoint_text_actors = create_anchored_graph_objects(current_graph, current_waypoint_snapshots, current_waypoints,
+                                                current_anchors, current_anchored_world_objects, renderer)
     else:
         avg_pos, waypoint_objects, waypoint_text_actors = create_graph_objects(
             current_graph, current_waypoint_snapshots, current_waypoints, renderer)
     
-    # Set up waypoint picker
-    picker = WaypointPicker(renderer, current_graph, waypoint_objects, waypoint_text_actors)
-    
     # Create the VTK renderer and interactor
     renderWindow = vtk.vtkRenderWindow()
-    renderWindow.SetWindowName(options.path)
+    renderWindow.SetWindowName(options.map_path)
     renderWindow.AddRenderer(renderer)
     renderWindowInteractor = vtk.vtkRenderWindowInteractor()
     renderWindowInteractor.SetRenderWindow(renderWindow)
@@ -554,8 +491,6 @@ def main(argv):
 
     renderWindowInteractor.SetInteractorStyle(style)
     
-    # Add observer for left mouse clicks
-    renderWindowInteractor.AddObserver('LeftButtonPressEvent', picker.pick_waypoint)
     
     renderer.ResetCamera()
     
