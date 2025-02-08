@@ -11,6 +11,7 @@ from io import BytesIO
 import cv2
 from scipy import ndimage
 from PIL import Image
+import re
 
 
 class DashMapVisualizer:
@@ -91,6 +92,15 @@ class DashMapVisualizer:
                 annotations[waypoint_id] = metadata
                 
         return annotations
+    @staticmethod
+    def _clean_text(text):
+        # Remove articles
+        text = re.sub(r'\b(a|an|the)\b', '', text)
+        # Remove plurals
+        text = re.sub(r's\b', '', text)
+        # Convert to lowercase
+        text = text.lower()
+        return text
     
     def extract_all_objects(self) -> List[str]:
         """Extract all unique objects from the annotations."""
@@ -98,7 +108,11 @@ class DashMapVisualizer:
         for ann in self.waypoint_annotations.values():
             if "views" in ann:
                 for view_data in ann["views"].values():
-                    objects.update(view_data.get("visible_objects", []))
+                    visible_objects = view_data.get("visible_objects", [])
+                    # Clean and normalize object names
+                    visible_objects = [self._clean_text(obj) for obj in visible_objects]
+                    
+                    objects.update(visible_objects)
         return sorted(objects)
     
     def load_waypoint_images(self) -> Dict[str, str]:
@@ -250,9 +264,9 @@ class DashMapVisualizer:
                 ann = self.waypoint_annotations[waypoint.id]
                 if "views" in ann:
                     for view_type, view_data in ann["views"].items():
-                        hover_text += f"<br>{view_type} objects:<br>"
+                        hover_text += f"<br>{self._clean_text(view_type)} objects:<br>"
                         hover_text += "<br>".join(
-                            f"- {obj}" for obj in view_data.get("visible_objects", [])
+                            f"- {self._clean_text(obj)}" for obj in view_data.get("visible_objects", [])
                         )
             hover_texts.append(hover_text)
             
