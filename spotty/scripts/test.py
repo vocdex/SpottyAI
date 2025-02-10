@@ -12,6 +12,7 @@ from io import BytesIO
 import cv2
 from scipy import ndimage
 from PIL import Image
+from datetime import datetime
 import re
 from bosdyn.client.math_helpers import SE3Pose
 import numpy as np
@@ -151,17 +152,27 @@ class DashMapVisualizer:
         return text
     
     def extract_all_objects(self) -> List[str]:
-        """Extract all unique objects from the annotations."""
+        """Extract all unique objects from the annotations with debug prints."""
         objects = set()
-        for ann in self.waypoint_annotations.values():
+        print("\nExtracting objects from annotations...")
+        
+        for waypoint_id, ann in self.waypoint_annotations.items():
             if "views" in ann:
-                for view_data in ann["views"].values():
+                print(f"\nWaypoint {waypoint_id}:")
+                for view_type, view_data in ann["views"].items():
                     visible_objects = view_data.get("visible_objects", [])
-                    # Clean and normalize object names
-                    visible_objects = [self._clean_text(obj) for obj in visible_objects]
+                    print(f"  View {view_type}:")
+                    print(f"  Raw objects: {visible_objects}")
                     
-                    objects.update(visible_objects)
-        return sorted(objects)
+                    # Clean and normalize object names
+                    cleaned_objects = [self._clean_text(obj) for obj in visible_objects]
+                    print(f"  Cleaned objects: {cleaned_objects}")
+                    
+                    objects.update(cleaned_objects)
+        
+        sorted_objects = sorted(list(objects))
+        print("\nFinal unique objects:", sorted_objects)
+        return sorted_objects
     
     def load_waypoint_images(self) -> Dict[str, str]:
         """Load and encode images for each waypoint."""
@@ -344,26 +355,30 @@ class DashMapVisualizer:
 
 
     def create_graph_figure(self, filtered_waypoints: Optional[List[str]] = None, use_anchoring: bool = False):
-        """Create the main graph visualization using either BFS or anchored transforms."""
+        """Create the main graph visualization with separate traces for filtered and non-filtered elements."""
+        print("\nCreating graph figure...")
+        print("Filtered waypoints:", filtered_waypoints)
         # Choose which transforms to use
         transforms = self.anchored_transforms if use_anchoring else self.global_transforms
         
-        # Extract waypoint positions using selected transforms
-        x, y = [], []
-        hover_texts = []
-        edge_x, edge_y = [], []
-        labels = []
+        # Initialize lists for filtered and non-filtered waypoints
+        filtered_x, filtered_y = [], []
+        filtered_hover, filtered_labels = [], []
+        other_x, other_y = [], []
+        other_hover, other_labels = [], []
         
+        # Initialize lists for filtered and non-filtered edges
+        filtered_edge_x, filtered_edge_y = [], []
+        other_edge_x, other_edge_y = [], []
+        
+        # Process waypoints
         for waypoint in self.graph.waypoints:
-            # Skip waypoints without transforms (unanchored waypoints in anchoring mode)
             if waypoint.id not in transforms:
                 continue
                 
             # Get the transform for this waypoint
             world_transform = transforms[waypoint.id]
             position = world_transform[:3, 3]
-            x.append(position[0])
-            y.append(position[1])
             
             # Create hover text
             hover_text = f"Location: {waypoint.annotations.name}<br>"
@@ -376,75 +391,118 @@ class DashMapVisualizer:
                 ann = self.waypoint_annotations[waypoint.id]
                 if "views" in ann:
                     for view_type, view_data in ann["views"].items():
-                        hover_text += f"<br>{self._clean_text(view_type)} objects:<br>"
-                        hover_text += "<br>".join(
-                            f"- {self._clean_text(obj)}" for obj in view_data.get("visible_objects", [])
-                        )
+                        objects = view_data.get("visible_objects", [])
+                        if objects:
+                            hover_text += f"<br>{self._clean_text(view_type)} objects:<br>"
+                            hover_text += "<br>".join(
+                                f"- {self._clean_text(obj)}" for obj in objects
+                            )
             
-            hover_texts.append(hover_text)
-            labels.append(waypoint.annotations.name)
+            # Sort into filtered or non-filtered lists
+            if filtered_waypoints and waypoint.id in filtered_waypoints:
+                filtered_x.append(position[0])
+                filtered_y.append(position[1])
+                filtered_hover.append(hover_text)
+                filtered_labels.append(waypoint.annotations.name)
+            else:
+                other_x.append(position[0])
+                other_y.append(position[1])
+                other_hover.append(hover_text)
+                other_labels.append(waypoint.annotations.name)
         
-        # Add edges
+        # Process edges
+        def add_edge(from_wp_id, to_wp_id):
+            is_filtered = (filtered_waypoints and 
+                        (from_wp_id in filtered_waypoints or 
+                        to_wp_id in filtered_waypoints))
+            
+            from_transform = transforms[from_wp_id]
+            to_transform = transforms[to_wp_id]
+            from_pos = from_transform[:3, 3]
+            to_pos = to_transform[:3, 3]
+            
+            if is_filtered:
+                filtered_edge_x.extend([from_pos[0], to_pos[0], None])
+                filtered_edge_y.extend([from_pos[1], to_pos[1], None])
+            else:
+                other_edge_x.extend([from_pos[0], to_pos[0], None])
+                other_edge_y.extend([from_pos[1], to_pos[1], None])
+        
+        # Add edges based on mode
         if use_anchoring:
-            # Only add edges between anchored waypoints
             for edge in self.graph.edges:
                 if (edge.id.from_waypoint in transforms and 
                     edge.id.to_waypoint in transforms):
-                    from_transform = transforms[edge.id.from_waypoint]
-                    to_transform = transforms[edge.id.to_waypoint]
-                    
-                    from_pos = from_transform[:3, 3]
-                    to_pos = to_transform[:3, 3]
-                    
-                    edge_x.extend([from_pos[0], to_pos[0], None])
-                    edge_y.extend([from_pos[1], to_pos[1], None])
+                    add_edge(edge.id.from_waypoint, edge.id.to_waypoint)
         else:
-            # Add all edges for BFS mode
             for edge in self.graph.edges:
-                from_transform = transforms[edge.id.from_waypoint]
-                to_transform = transforms[edge.id.to_waypoint]
-                
-                from_pos = from_transform[:3, 3]
-                to_pos = to_transform[:3, 3]
-                
-                edge_x.extend([from_pos[0], to_pos[0], None])
-                edge_y.extend([from_pos[1], to_pos[1], None])
+                add_edge(edge.id.from_waypoint, edge.id.to_waypoint)
         
         fig = go.Figure()
         
-        # Add edges
-        fig.add_trace(
-            go.Scatter(
-                x=edge_x, y=edge_y,
-                mode='lines',
-                line=dict(color='lightgrey', width=1),
-                hoverinfo='none',
-                showlegend=False
+        # Add non-filtered edges (semi-transparent)
+        if other_edge_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=other_edge_x, y=other_edge_y,
+                    mode='lines',
+                    line=dict(color='lightgrey', width=1),
+                    opacity=0.2,
+                    hoverinfo='none',
+                    showlegend=False
+                )
             )
-        )
         
-        # Add waypoints
-        marker_colors = [
-            'red' if filtered_waypoints and waypoint.id in filtered_waypoints else 'blue'
-            for waypoint in self.graph.waypoints if waypoint.id in transforms
-        ]
-        
-        fig.add_trace(
-            go.Scatter(
-                x=x, y=y,
-                mode='markers+text',
-                marker=dict(
-                    size=8, 
-                    color=marker_colors,
-                    symbol='circle'
-                ),
-                text=labels,
-                textposition="top center",
-                hovertext=hover_texts,
-                hoverinfo='text',
-                showlegend=False
+        # Add filtered edges
+        if filtered_edge_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=filtered_edge_x, y=filtered_edge_y,
+                    mode='lines',
+                    line=dict(color='lightgrey', width=1),
+                    hoverinfo='none',
+                    showlegend=False
+                )
             )
-        )
+        
+        # Add non-filtered waypoints (semi-transparent)
+        if other_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=other_x, y=other_y,
+                    mode='markers+text',
+                    marker=dict(
+                        size=8,
+                        color='blue',
+                        symbol='circle'
+                    ),
+                    text=other_labels,
+                    textposition="top center",
+                    hovertext=other_hover,
+                    hoverinfo='text',
+                    opacity=0.3,
+                    showlegend=False
+                )
+            )
+        
+        # Add filtered waypoints (highlighted)
+        if filtered_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=filtered_x, y=filtered_y,
+                    mode='markers+text',
+                    marker=dict(
+                        size=8,
+                        color='red',
+                        symbol='circle'
+                    ),
+                    text=filtered_labels,
+                    textposition="top center",
+                    hovertext=filtered_hover,
+                    hoverinfo='text',
+                    showlegend=False
+                )
+            )
         
         # Add anchored world objects if in anchoring mode
         if use_anchoring:
@@ -622,7 +680,7 @@ class DashMapVisualizer:
         ])
 
     def setup_callbacks(self):
-        """Set up the Dash callbacks with complete functionality."""
+        """Set up the Dash callbacks with real-time updates."""
         @self.app.callback(
             [Output('map-graph', 'figure'),
             Output('waypoint-image-left', 'src'),
@@ -633,24 +691,39 @@ class DashMapVisualizer:
             Output('selected-waypoint-store', 'data')],
             [Input('map-graph', 'clickData'),
             Input('object-filter', 'value'),
-            Input('use-anchoring', 'value')]
+            Input('use-anchoring', 'value'),
+            Input('unsaved-changes-store', 'data')]  # Add this input to trigger updates
         )
-        def update_ui(clickData, selected_objects, use_anchoring):
-            # Update map figure
+
+        def update_ui(clickData, selected_objects, use_anchoring, unsaved_changes):
+            """Update UI with debug prints for object filtering."""
+            print("\nUpdating UI...")
+            print("Selected objects:", selected_objects)            # Update map figure
+             # Filter waypoints based on selected objects
             filtered_waypoints = []
             if selected_objects:
+                print("\nChecking waypoints for selected objects...")
                 for waypoint_id, ann in self.waypoint_annotations.items():
+                    print(f"\nChecking waypoint {waypoint_id}:")
                     if "views" in ann:
-                        for view_data in ann["views"].values():
-                            if any(obj in view_data.get("visible_objects", []) for obj in selected_objects):
+                        for view_type, view_data in ann["views"].items():
+                            visible_objects = [self._clean_text(obj) for obj in view_data.get("visible_objects", [])]
+                            print(f"  View {view_type} objects:", visible_objects)
+                            
+                            # Check if any selected object is in the cleaned visible objects
+                            matches = [obj for obj in selected_objects if obj in visible_objects]
+                            if matches:
+                                print(f"  Found matches: {matches}")
                                 filtered_waypoints.append(waypoint_id)
                                 break
+            
+            print("Final filtered waypoints:", filtered_waypoints)
 
             map_figure = self.create_graph_figure(
                 filtered_waypoints=filtered_waypoints,
                 use_anchoring=bool('anchor' in (use_anchoring or []))
             )
-
+    
             if not clickData:
                 return (
                     map_figure,
@@ -730,8 +803,9 @@ class DashMapVisualizer:
                         self.all_labels.append(selected_label)
                         self.all_labels.sort()
                         
-                    # Mark that we have unsaved changes
+                    # Mark that we have unsaved changes and include timestamp to force update
                     changes_data['changes'] = True
+                    changes_data['last_update'] = datetime.now().isoformat()
                 
                 # Clear both input fields
                 return changes_data, '', None
