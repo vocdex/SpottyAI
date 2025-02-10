@@ -37,10 +37,11 @@ class DashMapVisualizer:
         self.snapshot_dir = os.path.join(self.graph_path, "waypoint_snapshots")
         
         # Load data
-        self.graph, self.waypoints, self.snapshots = self.load_graph()
+        self.graph, self.waypoints, self.snapshots, self.anchors, self.anchored_world_objects = self.load_graph()
         
         # Compute global transforms during initialization
-        self.compute_global_transforms()
+        self.compute_global_transforms() # BFS-based global transforms
+        self.compute_anchored_transforms() # Seed frame anchoring
         
         # Continue with rest of initialization...
         self.waypoint_annotations = self.load_rag_annotations()
@@ -61,15 +62,18 @@ class DashMapVisualizer:
         self.setup_layout()
         self.setup_callbacks()
         
-    def load_graph(self) -> Tuple[map_pb2.Graph, Dict, Dict]:
-        """Load GraphNav map data."""
+    def load_graph(self) -> Tuple[map_pb2.Graph, Dict, Dict, Dict, Dict]:
+        """Load GraphNav map data including anchoring information."""
         with open(os.path.join(self.graph_path, "graph"), "rb") as f:
             graph = map_pb2.Graph()
             graph.ParseFromString(f.read())
             
         waypoints = {waypoint.id: waypoint for waypoint in graph.waypoints}
         snapshots = {}
+        anchors = {}
+        anchored_world_objects = {}
         
+        # Load snapshots
         for waypoint in graph.waypoints:
             if waypoint.snapshot_id:
                 snapshot_path = os.path.join(self.snapshot_dir, waypoint.snapshot_id)
@@ -78,8 +82,16 @@ class DashMapVisualizer:
                         snapshot = map_pb2.WaypointSnapshot()
                         snapshot.ParseFromString(f.read())
                         snapshots[snapshot.id] = snapshot
-                        
-        return graph, waypoints, snapshots
+
+        # Load anchoring information
+        for anchor in graph.anchoring.anchors:
+            anchors[anchor.id] = anchor
+            
+        # Load anchored world objects
+        for anchored_wo in graph.anchoring.objects:
+            anchored_world_objects[anchored_wo.id] = anchored_wo
+            
+        return graph, waypoints, snapshots, anchors, anchored_world_objects
     
     def load_rag_annotations(self) -> Dict:
         """Load RAG annotations."""
@@ -286,32 +298,46 @@ class DashMapVisualizer:
                     world_tform_from = np.dot(world_tform_current, current_tform_from)
                     queue.append((from_waypoint, world_tform_from))
     
-
-    def create_graph_figure(self, filtered_waypoints: Optional[List[str]] = None):
-        """Create the main graph visualization using proper transforms."""
-        # Compute global transforms if not already computed
-        if not hasattr(self, 'global_transforms'):
-            self.compute_global_transforms()
+    def compute_anchored_transforms(self):
+        """Compute transforms for waypoints using seed frame anchoring."""
+        self.anchored_transforms = {}
         
-        # Extract waypoint positions using global transforms
+        # Process each waypoint that has an anchor
+        for waypoint_id, anchor in self.anchors.items():
+            # Get the transform from seed frame to waypoint
+            seed_tform_waypoint = SE3Pose.from_proto(anchor.seed_tform_waypoint).to_matrix()
+            self.anchored_transforms[waypoint_id] = seed_tform_waypoint
+
+
+    def create_graph_figure(self, filtered_waypoints: Optional[List[str]] = None, use_anchoring: bool = False):
+        """Create the main graph visualization using either BFS or anchored transforms."""
+        # Choose which transforms to use
+        transforms = self.anchored_transforms if use_anchoring else self.global_transforms
+        
+        # Extract waypoint positions using selected transforms
         x, y = [], []
         hover_texts = []
         edge_x, edge_y = [], []
+        labels = []
         
         for waypoint in self.graph.waypoints:
-            # Get the global transform for this waypoint
-            world_transform = self.global_transforms[waypoint.id]
-            # Extract position from transform matrix (last column)
+            # Skip waypoints without transforms (unanchored waypoints in anchoring mode)
+            if waypoint.id not in transforms:
+                continue
+                
+            # Get the transform for this waypoint
+            world_transform = transforms[waypoint.id]
             position = world_transform[:3, 3]
             x.append(position[0])
             y.append(position[1])
             
-            # Create detailed hover text
+            # Create hover text
             hover_text = f"Location: {waypoint.annotations.name}<br>"
             hover_text += f"Waypoint ID: {waypoint.id}<br>"
             hover_text += f"Position: ({position[0]:.2f}, {position[1]:.2f})<br>"
+            hover_text += f"Frame: {'Seed' if use_anchoring else 'BFS'}<br>"
             
-            # Add annotation information from RAG
+            # Add RAG annotations
             if waypoint.id in self.waypoint_annotations:
                 ann = self.waypoint_annotations[waypoint.id]
                 if "views" in ann:
@@ -320,18 +346,35 @@ class DashMapVisualizer:
                         hover_text += "<br>".join(
                             f"- {self._clean_text(obj)}" for obj in view_data.get("visible_objects", [])
                         )
+            
             hover_texts.append(hover_text)
+            labels.append(waypoint.annotations.name)
         
-        # Add edges using global transforms
-        for edge in self.graph.edges:
-            from_transform = self.global_transforms[edge.id.from_waypoint]
-            to_transform = self.global_transforms[edge.id.to_waypoint]
-            
-            from_pos = from_transform[:3, 3]
-            to_pos = to_transform[:3, 3]
-            
-            edge_x.extend([from_pos[0], to_pos[0], None])
-            edge_y.extend([from_pos[1], to_pos[1], None])
+        # Add edges
+        if use_anchoring:
+            # Only add edges between anchored waypoints
+            for edge in self.graph.edges:
+                if (edge.id.from_waypoint in transforms and 
+                    edge.id.to_waypoint in transforms):
+                    from_transform = transforms[edge.id.from_waypoint]
+                    to_transform = transforms[edge.id.to_waypoint]
+                    
+                    from_pos = from_transform[:3, 3]
+                    to_pos = to_transform[:3, 3]
+                    
+                    edge_x.extend([from_pos[0], to_pos[0], None])
+                    edge_y.extend([from_pos[1], to_pos[1], None])
+        else:
+            # Add all edges for BFS mode
+            for edge in self.graph.edges:
+                from_transform = transforms[edge.id.from_waypoint]
+                to_transform = transforms[edge.id.to_waypoint]
+                
+                from_pos = from_transform[:3, 3]
+                to_pos = to_transform[:3, 3]
+                
+                edge_x.extend([from_pos[0], to_pos[0], None])
+                edge_y.extend([from_pos[1], to_pos[1], None])
         
         fig = go.Figure()
         
@@ -349,7 +392,7 @@ class DashMapVisualizer:
         # Add waypoints
         marker_colors = [
             'red' if filtered_waypoints and waypoint.id in filtered_waypoints else 'blue'
-            for waypoint in self.graph.waypoints
+            for waypoint in self.graph.waypoints if waypoint.id in transforms
         ]
         
         fig.add_trace(
@@ -361,7 +404,7 @@ class DashMapVisualizer:
                     color=marker_colors,
                     symbol='circle'
                 ),
-                text=[wp.annotations.name for wp in self.graph.waypoints],
+                text=labels,
                 textposition="top center",
                 hovertext=hover_texts,
                 hoverinfo='text',
@@ -369,14 +412,46 @@ class DashMapVisualizer:
             )
         )
         
+        # Add anchored world objects if in anchoring mode
+        if use_anchoring:
+            obj_x, obj_y = [], []
+            obj_texts = []
+            
+            for obj_id, anchored_obj in self.anchored_world_objects.items():
+                seed_tform_obj = SE3Pose.from_proto(anchored_obj.seed_tform_object).to_matrix()
+                position = seed_tform_obj[:3, 3]
+                
+                obj_x.append(position[0])
+                obj_y.append(position[1])
+                obj_texts.append(f"Object ID: {obj_id}")
+            
+            if obj_x:  # Only add if there are objects
+                fig.add_trace(
+                    go.Scatter(
+                        x=obj_x, y=obj_y,
+                        mode='markers+text',
+                        marker=dict(
+                            size=10,
+                            color='green',
+                            symbol='square'
+                        ),
+                        text=obj_texts,
+                        textposition="top center",
+                        hovertext=obj_texts,
+                        hoverinfo='text',
+                        name='Anchored Objects'
+                    )
+                )
+        
         # Update layout
         fig.update_layout(
-            showlegend=False,
+            showlegend=True if use_anchoring else False,
             hovermode='closest',
             margin=dict(t=0, l=0, r=0, b=0),
             plot_bgcolor='white',
             xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
-            yaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray')
+            yaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
+            title=f"Graph View ({'Seed Frame' if use_anchoring else 'BFS Frame'})"
         )
         
         # Make axes equal scale
@@ -386,31 +461,33 @@ class DashMapVisualizer:
         )
         
         return fig
-        
     def setup_layout(self):
-        """Set up the Dash app layout."""
+        """Set up the Dash app layout with anchoring toggle."""
         self.app.layout = html.Div([
             html.Div([
                 dcc.Dropdown(
                     id='object-filter',
                     options=[{'label': obj, 'value': obj} for obj in self.all_objects],
                     placeholder="Filter by object...",
-                    multi=True
+                    multi=True,
+                    style={'width': '50%', 'display': 'inline-block'}
                 ),
+                dcc.Checklist(
+                    id='use-anchoring',
+                    options=[{'label': 'Use Seed Frame Anchoring', 'value': 'anchor'}],
+                    value=[],
+                    style={'width': '50%', 'display': 'inline-block'}
+                ),
+            ]),
+            html.Div([
                 dcc.Graph(
                     id='map-graph',
                     figure=self.create_graph_figure(),
                     style={'height': '500px', 'width': '70%', 'display': 'inline-block'}
                 ),
                 html.Div([
-                    html.Img(
-                        id='waypoint-image-left',
-                        style={'width': '100%'}
-                    ),
-                    html.Img(
-                        id='waypoint-image-right',
-                        style={'width': '100%'}
-                    )
+                    html.Img(id='waypoint-image-left', style={'width': '100%'}),
+                    html.Img(id='waypoint-image-right', style={'width': '100%'})
                 ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'})
             ]),
             dash_table.DataTable(
@@ -423,18 +500,19 @@ class DashMapVisualizer:
                 style_table={'margin-top': '20px', 'width': '70%'}
             )
         ])
-        
+
     def setup_callbacks(self):
-        """Set up the Dash callbacks."""
+        """Set up the Dash callbacks with anchoring support."""
         @self.app.callback(
             [Output('map-graph', 'figure'),
              Output('waypoint-image-left', 'src'),
              Output('waypoint-image-right', 'src'),
              Output('waypoint-info', 'data')],
             [Input('map-graph', 'clickData'),
-             Input('object-filter', 'value')]
+             Input('object-filter', 'value'),
+             Input('use-anchoring', 'value')]
         )
-        def update_ui(clickData, selected_objects):
+        def update_ui(clickData, selected_objects, use_anchoring):
             # Filter waypoints based on selected objects
             filtered_waypoints = []
             if selected_objects:
@@ -446,9 +524,12 @@ class DashMapVisualizer:
                                 break
 
             # Update the map figure
-            map_figure = self.create_graph_figure(filtered_waypoints)
+            map_figure = self.create_graph_figure(
+                filtered_waypoints=filtered_waypoints,
+                use_anchoring=bool('anchor' in (use_anchoring or []))
+            )
 
-            # Update the images and info based on clicked waypoint
+            # Handle click data and update images/info (rest remains the same)
             if not clickData:
                 return map_figure, f"data:image/jpeg;base64,{self.default_image_base64}", f"data:image/jpeg;base64,{self.default_image_base64}", []
 
