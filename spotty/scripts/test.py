@@ -1,5 +1,6 @@
-from dash import Dash, dcc, html, Input, Output, dash_table
+from dash import Dash, dcc, html, Input, Output, dash_table, State
 import plotly.graph_objects as go
+import dash
 import numpy as np
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.api import image_pb2
@@ -53,6 +54,8 @@ class DashMapVisualizer:
         buffered = BytesIO()
         Image.fromarray(self.default_image).save(buffered, format="JPEG")
         self.default_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        self.all_labels = self.extract_all_labels()
+ 
 
         # Extract all unique objects for filtering
         self.all_objects = self.extract_all_objects()
@@ -61,6 +64,37 @@ class DashMapVisualizer:
         self.app = Dash(__name__)
         self.setup_layout()
         self.setup_callbacks()
+
+        # Add path for saving updated graph
+        self.graph_file_path = os.path.join(self.graph_path, "graph")
+        self.label_changes = {}
+    
+    def extract_all_labels(self) -> List[str]:
+        """Extract all unique labels from existing waypoints."""
+        labels = set()
+        for waypoint in self.graph.waypoints:
+            if waypoint.annotations.name:
+                labels.add(waypoint.annotations.name)
+        return sorted(list(labels))
+
+    def save_updated_graph(self):
+        """Save the graph with updated waypoint labels."""
+        try:
+            # Apply all pending label changes
+            for waypoint in self.graph.waypoints:
+                if waypoint.id in self.label_changes:
+                    waypoint.annotations.name = self.label_changes[waypoint.id]
+            
+            # Serialize and save the updated graph
+            with open(self.graph_file_path, "wb") as f:
+                f.write(self.graph.SerializeToString())
+            
+            # Clear the changes after successful save
+            self.label_changes.clear()
+            
+            return True, "Graph saved successfully"
+        except Exception as e:
+            return False, f"Error saving graph: {str(e)}"
         
     def load_graph(self) -> Tuple[map_pb2.Graph, Dict, Dict, Dict, Dict]:
         """Load GraphNav map data including anchoring information."""
@@ -462,34 +496,116 @@ class DashMapVisualizer:
         
         return fig
     def setup_layout(self):
-        """Set up the Dash app layout with anchoring toggle."""
+        """Set up the Dash app layout with label dropdown."""
         self.app.layout = html.Div([
+            # Top controls row
             html.Div([
                 dcc.Dropdown(
                     id='object-filter',
                     options=[{'label': obj, 'value': obj} for obj in self.all_objects],
                     placeholder="Filter by object...",
                     multi=True,
-                    style={'width': '50%', 'display': 'inline-block'}
+                    style={'width': '40%', 'display': 'inline-block'}
                 ),
                 dcc.Checklist(
                     id='use-anchoring',
                     options=[{'label': 'Use Seed Frame Anchoring', 'value': 'anchor'}],
                     value=[],
-                    style={'width': '50%', 'display': 'inline-block'}
+                    style={'width': '30%', 'display': 'inline-block'}
                 ),
+                html.Button(
+                    'Save Changes',
+                    id='save-changes-button',
+                    style={
+                        'width': '20%',
+                        'display': 'inline-block',
+                        'backgroundColor': '#4CAF50',
+                        'color': 'white',
+                        'padding': '10px',
+                        'border': 'none',
+                        'borderRadius': '4px',
+                        'cursor': 'pointer'
+                    }
+                ),
+                html.Div(
+                    id='save-status',
+                    style={'width': '10%', 'display': 'inline-block', 'paddingLeft': '10px'}
+                )
             ]),
+            
+            # Main content area
             html.Div([
-                dcc.Graph(
-                    id='map-graph',
-                    figure=self.create_graph_figure(),
-                    style={'height': '500px', 'width': '70%', 'display': 'inline-block'}
-                ),
+                # Left side: Graph and editing interface
+                html.Div([
+                    dcc.Graph(
+                        id='map-graph',
+                        figure=self.create_graph_figure(),
+                        style={'height': '500px'}
+                    ),
+                    # Editing interface with dropdown
+                    html.Div([
+                        html.H4('Edit Waypoint Label', style={'marginBottom': '10px'}),
+                        html.Div([
+                            html.Strong('Selected Waypoint: '),
+                            html.Span(id='selected-waypoint-id', style={'marginLeft': '10px'})
+                        ]),
+                        html.Div([
+                            html.Strong('Current Label: '),
+                            html.Span(id='current-label', style={'marginLeft': '10px'})
+                        ], style={'marginTop': '10px'}),
+                        html.Div([
+                            # Label selection/input area
+                            html.Div([
+                                # Dropdown for existing labels
+                                dcc.Dropdown(
+                                    id='label-dropdown',
+                                    options=[{'label': label, 'value': label} for label in self.all_labels],
+                                    placeholder="Select existing label...",
+                                    style={
+                                        'width': '45%',
+                                        'display': 'inline-block',
+                                        'marginRight': '10px'
+                                    }
+                                ),
+                                # Text input for new labels
+                                dcc.Input(
+                                    id='new-label-input',
+                                    type='text',
+                                    placeholder='Or type new label...',
+                                    style={
+                                        'width': '45%',
+                                        'padding': '8px',
+                                        'marginRight': '10px',
+                                        'display': 'inline-block'
+                                    }
+                                ),
+                            ], style={'marginTop': '10px', 'marginBottom': '10px'}),
+                            # Update button
+                            html.Button(
+                                'Update Label',
+                                id='update-label-button',
+                                style={
+                                    'backgroundColor': '#008CBA',
+                                    'color': 'white',
+                                    'padding': '8px',
+                                    'border': 'none',
+                                    'borderRadius': '4px',
+                                    'cursor': 'pointer',
+                                    'marginTop': '10px'
+                                }
+                            )
+                        ])
+                    ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px'})
+                ], style={'width': '70%', 'display': 'inline-block'}),
+                
+                # Right side: Images
                 html.Div([
                     html.Img(id='waypoint-image-left', style={'width': '100%'}),
                     html.Img(id='waypoint-image-right', style={'width': '100%'})
                 ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'})
             ]),
+            
+            # Bottom info table
             dash_table.DataTable(
                 id='waypoint-info',
                 columns=[
@@ -498,22 +614,29 @@ class DashMapVisualizer:
                 ],
                 data=[],
                 style_table={'margin-top': '20px', 'width': '70%'}
-            )
+            ),
+            
+            # Store components
+            dcc.Store(id='selected-waypoint-store'),
+            dcc.Store(id='unsaved-changes-store', data={'changes': False})
         ])
 
     def setup_callbacks(self):
-        """Set up the Dash callbacks with anchoring support."""
+        """Set up the Dash callbacks with complete functionality."""
         @self.app.callback(
             [Output('map-graph', 'figure'),
-             Output('waypoint-image-left', 'src'),
-             Output('waypoint-image-right', 'src'),
-             Output('waypoint-info', 'data')],
+            Output('waypoint-image-left', 'src'),
+            Output('waypoint-image-right', 'src'),
+            Output('waypoint-info', 'data'),
+            Output('selected-waypoint-id', 'children'),
+            Output('current-label', 'children'),
+            Output('selected-waypoint-store', 'data')],
             [Input('map-graph', 'clickData'),
-             Input('object-filter', 'value'),
-             Input('use-anchoring', 'value')]
+            Input('object-filter', 'value'),
+            Input('use-anchoring', 'value')]
         )
         def update_ui(clickData, selected_objects, use_anchoring):
-            # Filter waypoints based on selected objects
+            # Update map figure
             filtered_waypoints = []
             if selected_objects:
                 for waypoint_id, ann in self.waypoint_annotations.items():
@@ -523,18 +646,28 @@ class DashMapVisualizer:
                                 filtered_waypoints.append(waypoint_id)
                                 break
 
-            # Update the map figure
             map_figure = self.create_graph_figure(
                 filtered_waypoints=filtered_waypoints,
                 use_anchoring=bool('anchor' in (use_anchoring or []))
             )
 
-            # Handle click data and update images/info (rest remains the same)
             if not clickData:
-                return map_figure, f"data:image/jpeg;base64,{self.default_image_base64}", f"data:image/jpeg;base64,{self.default_image_base64}", []
+                return (
+                    map_figure,
+                    f"data:image/jpeg;base64,{self.default_image_base64}",
+                    f"data:image/jpeg;base64,{self.default_image_base64}",
+                    [],
+                    "No waypoint selected",
+                    "No waypoint selected",
+                    None
+                )
 
             point = clickData['points'][0]
             waypoint_id = self.graph.waypoints[point['pointIndex']].id
+            waypoint = self.waypoints[waypoint_id]
+            
+            # Get current label (including any pending changes)
+            current_label = self.label_changes.get(waypoint_id, waypoint.annotations.name)
             
             # Get images
             image_data_left = self.waypoint_images.get(waypoint_id, self.default_image_base64)
@@ -542,11 +675,10 @@ class DashMapVisualizer:
             image_src_left = f"data:image/jpeg;base64,{image_data_left}"
             image_src_right = f"data:image/jpeg;base64,{image_data_right}"
             
-            # Get waypoint info
+            # Prepare info table data
             info = []
-            waypoint = self.waypoints[waypoint_id]
             info.append({'property': 'Waypoint ID', 'value': waypoint_id})
-            info.append({'property': 'Location', 'value': waypoint.annotations.name})
+            info.append({'property': 'Location', 'value': current_label})
             
             if waypoint_id in self.waypoint_annotations:
                 ann = self.waypoint_annotations[waypoint_id]
@@ -556,7 +688,87 @@ class DashMapVisualizer:
                         if objects:
                             info.append({'property': f"{view_type} Objects", 'value': ", ".join(objects)})
             
-            return map_figure, image_src_left, image_src_right, info
+            return (
+                map_figure,
+                image_src_left,
+                image_src_right,
+                info,
+                waypoint_id,
+                current_label,
+                {'waypoint_id': waypoint_id}
+            )
+
+        @self.app.callback(
+            [Output('unsaved-changes-store', 'data'),
+            Output('new-label-input', 'value'),
+            Output('label-dropdown', 'value')],
+            [Input('update-label-button', 'n_clicks'),
+            Input('label-dropdown', 'value'),
+            Input('new-label-input', 'value')],
+            [State('selected-waypoint-store', 'data'),
+            State('unsaved-changes-store', 'data')]
+        )
+        def manage_label_inputs(update_clicks, dropdown_value, text_input, selected_waypoint, changes_data):
+            ctx = dash.callback_context
+            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+            # Handle update button click
+            if trigger_id == 'update-label-button':
+                if update_clicks is None or selected_waypoint is None:
+                    return changes_data, '', None
+                    
+                waypoint_id = selected_waypoint['waypoint_id']
+                
+                # Prefer the text input over dropdown if both are provided
+                selected_label = text_input if text_input else dropdown_value
+                
+                if selected_label:
+                    self.label_changes[waypoint_id] = selected_label
+                    
+                    # If this is a new label, add it to the dropdown options
+                    if selected_label not in self.all_labels:
+                        self.all_labels.append(selected_label)
+                        self.all_labels.sort()
+                        
+                    # Mark that we have unsaved changes
+                    changes_data['changes'] = True
+                
+                # Clear both input fields
+                return changes_data, '', None
+
+            # Handle dropdown selection
+            elif trigger_id == 'label-dropdown':
+                return dash.no_update, '', dropdown_value
+
+            # Handle text input
+            elif trigger_id == 'new-label-input':
+                return dash.no_update, text_input, None
+
+            # Default case
+            return dash.no_update, dash.no_update, dash.no_update
+
+        @self.app.callback(
+            [Output('save-status', 'children'),
+            Output('save-status', 'style')],
+            [Input('save-changes-button', 'n_clicks')],
+            [State('unsaved-changes-store', 'data')]
+        )
+        def save_changes(n_clicks, changes_data):
+            if n_clicks is None:
+                return '', {}
+                
+            if not changes_data.get('changes', False):
+                return 'No changes to save', {'color': 'blue'}
+                
+            success, message = self.save_updated_graph()
+            
+            style = {
+                'color': 'green' if success else 'red',
+                'fontWeight': 'bold'
+            }
+            
+            return message, style
+
             
     def run(self, debug=True, port=8050):
         """Run the Dash app."""
