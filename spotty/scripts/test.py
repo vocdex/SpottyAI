@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html, Input, Output, no_update, dash_table
+from dash import Dash, dcc, html, Input, Output, dash_table
 import plotly.graph_objects as go
 import numpy as np
 from bosdyn.api.graph_nav import map_pb2
@@ -12,6 +12,8 @@ import cv2
 from scipy import ndimage
 from PIL import Image
 import re
+from bosdyn.client.math_helpers import SE3Pose
+import numpy as np
 
 
 class DashMapVisualizer:
@@ -27,12 +29,7 @@ class DashMapVisualizer:
         'right_fisheye_image': 180
     }
 
-    def __init__(
-        self,
-        graph_path: str,
-        rag_db_path: str,
-        logger=None
-    ):
+    def __init__(self, graph_path: str, rag_db_path: str, logger=None):
         """Initialize the Dash map visualizer."""
         self.graph_path = graph_path
         self.rag_db_path = rag_db_path
@@ -41,6 +38,11 @@ class DashMapVisualizer:
         
         # Load data
         self.graph, self.waypoints, self.snapshots = self.load_graph()
+        
+        # Compute global transforms during initialization
+        self.compute_global_transforms()
+        
+        # Continue with rest of initialization...
         self.waypoint_annotations = self.load_rag_annotations()
         self.waypoint_images = self.load_waypoint_images()
         
@@ -242,22 +244,72 @@ class DashMapVisualizer:
             if self.logger:
                 self.logger.error(f"Error in _encode_image_to_base64: {str(e)}")
             return None
+    
+    def compute_global_transforms(self):
+        """Compute global transforms for all waypoints using BFS."""
+        # Dictionary to store global transforms for each waypoint
+        self.global_transforms = {}
         
+        # Start BFS from the first waypoint
+        queue = []
+        visited = {}
+        
+        # Start with first waypoint and identity matrix
+        first_waypoint = self.graph.waypoints[0]
+        queue.append((first_waypoint, np.eye(4)))
+        
+        while len(queue) > 0:
+            curr_element = queue[0]
+            queue.pop(0)
+            curr_waypoint = curr_element[0]
+            world_tform_current = curr_element[1]
+            
+            if curr_waypoint.id in visited:
+                continue
+                
+            visited[curr_waypoint.id] = True
+            self.global_transforms[curr_waypoint.id] = world_tform_current
+            
+            # Process all edges
+            for edge in self.graph.edges:
+                # Handle forward edges
+                if edge.id.from_waypoint == curr_waypoint.id and edge.id.to_waypoint not in visited:
+                    to_waypoint = self.waypoints[edge.id.to_waypoint]
+                    current_tform_to = SE3Pose.from_proto(edge.from_tform_to).to_matrix()
+                    world_tform_to = np.dot(world_tform_current, current_tform_to)
+                    queue.append((to_waypoint, world_tform_to))
+                
+                # Handle reverse edges
+                elif edge.id.to_waypoint == curr_waypoint.id and edge.id.from_waypoint not in visited:
+                    from_waypoint = self.waypoints[edge.id.from_waypoint]
+                    current_tform_from = SE3Pose.from_proto(edge.from_tform_to).inverse().to_matrix()
+                    world_tform_from = np.dot(world_tform_current, current_tform_from)
+                    queue.append((from_waypoint, world_tform_from))
+    
+
     def create_graph_figure(self, filtered_waypoints: Optional[List[str]] = None):
-        """Create the main graph visualization."""
-        # Extract waypoint positions
+        """Create the main graph visualization using proper transforms."""
+        # Compute global transforms if not already computed
+        if not hasattr(self, 'global_transforms'):
+            self.compute_global_transforms()
+        
+        # Extract waypoint positions using global transforms
         x, y = [], []
         hover_texts = []
         edge_x, edge_y = [], []
         
         for waypoint in self.graph.waypoints:
-            pos = waypoint.waypoint_tform_ko.position
-            x.append(pos.x)
-            y.append(pos.y)
+            # Get the global transform for this waypoint
+            world_transform = self.global_transforms[waypoint.id]
+            # Extract position from transform matrix (last column)
+            position = world_transform[:3, 3]
+            x.append(position[0])
+            y.append(position[1])
             
             # Create detailed hover text
             hover_text = f"Location: {waypoint.annotations.name}<br>"
             hover_text += f"Waypoint ID: {waypoint.id}<br>"
+            hover_text += f"Position: ({position[0]:.2f}, {position[1]:.2f})<br>"
             
             # Add annotation information from RAG
             if waypoint.id in self.waypoint_annotations:
@@ -269,18 +321,18 @@ class DashMapVisualizer:
                             f"- {self._clean_text(obj)}" for obj in view_data.get("visible_objects", [])
                         )
             hover_texts.append(hover_text)
-            
-        # Add edges
+        
+        # Add edges using global transforms
         for edge in self.graph.edges:
-            from_wp = self.waypoints[edge.id.from_waypoint]
-            to_wp = self.waypoints[edge.id.to_waypoint]
+            from_transform = self.global_transforms[edge.id.from_waypoint]
+            to_transform = self.global_transforms[edge.id.to_waypoint]
             
-            from_pos = from_wp.waypoint_tform_ko.position
-            to_pos = to_wp.waypoint_tform_ko.position
+            from_pos = from_transform[:3, 3]
+            to_pos = to_transform[:3, 3]
             
-            edge_x.extend([from_pos.x, to_pos.x, None])
-            edge_y.extend([from_pos.y, to_pos.y, None])
-            
+            edge_x.extend([from_pos[0], to_pos[0], None])
+            edge_y.extend([from_pos[1], to_pos[1], None])
+        
         fig = go.Figure()
         
         # Add edges
@@ -299,21 +351,38 @@ class DashMapVisualizer:
             'red' if filtered_waypoints and waypoint.id in filtered_waypoints else 'blue'
             for waypoint in self.graph.waypoints
         ]
+        
         fig.add_trace(
             go.Scatter(
                 x=x, y=y,
-                mode='markers',
-                marker=dict(size=8, color=marker_colors),
-                text=hover_texts,
+                mode='markers+text',
+                marker=dict(
+                    size=8, 
+                    color=marker_colors,
+                    symbol='circle'
+                ),
+                text=[wp.annotations.name for wp in self.graph.waypoints],
+                textposition="top center",
+                hovertext=hover_texts,
                 hoverinfo='text',
                 showlegend=False
             )
         )
         
+        # Update layout
         fig.update_layout(
             showlegend=False,
             hovermode='closest',
-            margin=dict(t=0, l=0, r=0, b=0)
+            margin=dict(t=0, l=0, r=0, b=0),
+            plot_bgcolor='white',
+            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
+            yaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray')
+        )
+        
+        # Make axes equal scale
+        fig.update_yaxes(
+            scaleanchor="x",
+            scaleratio=1
         )
         
         return fig
@@ -414,8 +483,8 @@ class DashMapVisualizer:
 
 if __name__ == "__main__":
     visualizer = DashMapVisualizer(
-        graph_path="assets/maps/chair_v3",
-        rag_db_path="assets/database/chair_v3",
+        graph_path="visualizer/assets/maps/chair_v3",
+        rag_db_path="visualizer/assets/database/chair_v3",
         logger=None
     )
     visualizer.run()
