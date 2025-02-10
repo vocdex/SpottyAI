@@ -158,15 +158,10 @@ class DashMapVisualizer:
         
         for waypoint_id, ann in self.waypoint_annotations.items():
             if "views" in ann:
-                print(f"\nWaypoint {waypoint_id}:")
                 for view_type, view_data in ann["views"].items():
                     visible_objects = view_data.get("visible_objects", [])
-                    print(f"  View {view_type}:")
-                    print(f"  Raw objects: {visible_objects}")
-                    
                     # Clean and normalize object names
                     cleaned_objects = [self._clean_text(obj) for obj in visible_objects]
-                    print(f"  Cleaned objects: {cleaned_objects}")
                     
                     objects.update(cleaned_objects)
         
@@ -481,7 +476,10 @@ class DashMapVisualizer:
                     hovertext=other_hover,
                     hoverinfo='text',
                     opacity=0.3,
-                    showlegend=False
+                    showlegend=False,
+                    # Add customdata to identify points
+                    customdata=[{'id': wp.id} for wp in self.graph.waypoints 
+                            if wp.id not in (filtered_waypoints or [])]
                 )
             )
         
@@ -500,10 +498,13 @@ class DashMapVisualizer:
                     textposition="top center",
                     hovertext=filtered_hover,
                     hoverinfo='text',
-                    showlegend=False
+                    showlegend=False,
+                    # Add customdata to identify points
+                    customdata=[{'id': wp.id} for wp in self.graph.waypoints 
+                            if wp.id in (filtered_waypoints or [])]
                 )
             )
-        
+    
         # Add anchored world objects if in anchoring mode
         if use_anchoring:
             obj_x, obj_y = [], []
@@ -679,8 +680,9 @@ class DashMapVisualizer:
             dcc.Store(id='unsaved-changes-store', data={'changes': False})
         ])
 
+    
     def setup_callbacks(self):
-        """Set up the Dash callbacks with real-time updates."""
+        """Set up the Dash callbacks with fixed image display logic."""
         @self.app.callback(
             [Output('map-graph', 'figure'),
             Output('waypoint-image-left', 'src'),
@@ -692,38 +694,26 @@ class DashMapVisualizer:
             [Input('map-graph', 'clickData'),
             Input('object-filter', 'value'),
             Input('use-anchoring', 'value'),
-            Input('unsaved-changes-store', 'data')]  # Add this input to trigger updates
+            Input('unsaved-changes-store', 'data')]
         )
-
-        def update_ui(clickData, selected_objects, use_anchoring, unsaved_changes):
-            """Update UI with debug prints for object filtering."""
-            print("\nUpdating UI...")
-            print("Selected objects:", selected_objects)            # Update map figure
-             # Filter waypoints based on selected objects
+        def update_ui(clickData, selected_objects, use_anchoring, changes_data):
+            # Filter waypoints based on selected objects
             filtered_waypoints = []
             if selected_objects:
-                print("\nChecking waypoints for selected objects...")
                 for waypoint_id, ann in self.waypoint_annotations.items():
-                    print(f"\nChecking waypoint {waypoint_id}:")
                     if "views" in ann:
-                        for view_type, view_data in ann["views"].items():
+                        for view_data in ann["views"].values():
                             visible_objects = [self._clean_text(obj) for obj in view_data.get("visible_objects", [])]
-                            print(f"  View {view_type} objects:", visible_objects)
-                            
-                            # Check if any selected object is in the cleaned visible objects
-                            matches = [obj for obj in selected_objects if obj in visible_objects]
-                            if matches:
-                                print(f"  Found matches: {matches}")
+                            if any(obj in visible_objects for obj in selected_objects):
                                 filtered_waypoints.append(waypoint_id)
                                 break
-            
-            print("Final filtered waypoints:", filtered_waypoints)
 
+            # Create the map figure
             map_figure = self.create_graph_figure(
                 filtered_waypoints=filtered_waypoints,
                 use_anchoring=bool('anchor' in (use_anchoring or []))
             )
-    
+
             if not clickData:
                 return (
                     map_figure,
@@ -735,11 +725,40 @@ class DashMapVisualizer:
                     None
                 )
 
-            point = clickData['points'][0]
-            waypoint_id = self.graph.waypoints[point['pointIndex']].id
+            # Get waypoint ID from customdata
+            point_data = clickData['points'][0]
+            if 'customdata' in point_data and point_data['customdata']:
+                waypoint_id = point_data['customdata']['id']
+            else:
+                # Fallback to finding the waypoint ID
+                clicked_x = point_data['x']
+                clicked_y = point_data['y']
+                transforms = self.anchored_transforms if bool('anchor' in (use_anchoring or [])) else self.global_transforms
+                
+                # Find the closest waypoint to the clicked point
+                min_dist = float('inf')
+                waypoint_id = None
+                
+                for wp in self.graph.waypoints:
+                    if wp.id in transforms:
+                        pos = transforms[wp.id][:3, 3]
+                        dist = ((pos[0] - clicked_x) ** 2 + (pos[1] - clicked_y) ** 2) ** 0.5
+                        if dist < min_dist:
+                            min_dist = dist
+                            waypoint_id = wp.id
+
+            if not waypoint_id:
+                return (
+                    map_figure,
+                    f"data:image/jpeg;base64,{self.default_image_base64}",
+                    f"data:image/jpeg;base64,{self.default_image_base64}",
+                    [],
+                    "No waypoint selected",
+                    "No waypoint selected",
+                    None
+                )
+
             waypoint = self.waypoints[waypoint_id]
-            
-            # Get current label (including any pending changes)
             current_label = self.label_changes.get(waypoint_id, waypoint.annotations.name)
             
             # Get images
