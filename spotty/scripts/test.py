@@ -351,7 +351,6 @@ class DashMapVisualizer:
 
     def create_graph_figure(self, filtered_waypoints: Optional[List[str]] = None, use_anchoring: bool = False):
         """Create the main graph visualization with separate traces for filtered and non-filtered elements."""
-        print("\nCreating graph figure...")
         print("Filtered waypoints:", filtered_waypoints)
         # Choose which transforms to use
         transforms = self.anchored_transforms if use_anchoring else self.global_transforms
@@ -594,92 +593,136 @@ class DashMapVisualizer:
             
             # Main content area
             html.Div([
-                # Left side: Graph and editing interface
+                # Graph and Label Editing Row
                 html.Div([
-                    dcc.Graph(
-                        id='map-graph',
-                        figure=self.create_graph_figure(),
-                        style={'height': '500px'}
-                    ),
-                    # Editing interface with dropdown
+                    # Graph section
                     html.Div([
-                        html.H4('Edit Waypoint Label', style={'marginBottom': '10px'}),
+                        dcc.Graph(
+                            id='map-graph',
+                            figure=self.create_graph_figure(),
+                            style={'height': '500px'},
+                            config={
+                                'displayModeBar': True,
+                                'scrollZoom': True,
+                                'doubleClick': 'reset'
+                            }
+                        )
+                    ], style={'width': '70%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                    
+                    # Label editing section (next to graph)
+                    html.Div([
                         html.Div([
-                            html.Strong('Selected Waypoint: '),
-                            html.Span(id='selected-waypoint-id', style={'marginLeft': '10px'})
-                        ]),
-                        html.Div([
-                            html.Strong('Current Label: '),
-                            html.Span(id='current-label', style={'marginLeft': '10px'})
-                        ], style={'marginTop': '10px'}),
-                        html.Div([
-                            # Label selection/input area
+                            html.H4('Edit Waypoint Label', style={'marginBottom': '10px'}),
                             html.Div([
-                                # Dropdown for existing labels
+                                html.Strong('Selected Waypoint: '),
+                                html.Span(id='selected-waypoint-id', style={'marginLeft': '10px'})
+                            ]),
+                            html.Div([
+                                html.Strong('Current Label: '),
+                                html.Span(id='current-label', style={'marginLeft': '10px'})
+                            ], style={'marginTop': '10px'}),
+                            html.Div([
                                 dcc.Dropdown(
                                     id='label-dropdown',
                                     options=[{'label': label, 'value': label} for label in self.all_labels],
                                     placeholder="Select existing label...",
-                                    style={
-                                        'width': '45%',
-                                        'display': 'inline-block',
-                                        'marginRight': '10px'
-                                    }
+                                    style={'marginBottom': '10px'}
                                 ),
-                                # Text input for new labels
                                 dcc.Input(
                                     id='new-label-input',
                                     type='text',
                                     placeholder='Or type new label...',
                                     style={
-                                        'width': '45%',
+                                        'width': '100%',
                                         'padding': '8px',
-                                        'marginRight': '10px',
-                                        'display': 'inline-block'
+                                        'marginBottom': '10px'
                                     }
                                 ),
-                            ], style={'marginTop': '10px', 'marginBottom': '10px'}),
-                            # Update button
-                            html.Button(
-                                'Update Label',
-                                id='update-label-button',
-                                style={
-                                    'backgroundColor': '#008CBA',
-                                    'color': 'white',
-                                    'padding': '8px',
-                                    'border': 'none',
-                                    'borderRadius': '4px',
-                                    'cursor': 'pointer',
-                                    'marginTop': '10px'
-                                }
-                            )
-                        ])
-                    ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px'})
-                ], style={'width': '70%', 'display': 'inline-block'}),
+                                html.Button(
+                                    'Update Label',
+                                    id='update-label-button',
+                                    style={
+                                        'backgroundColor': '#008CBA',
+                                        'color': 'white',
+                                        'padding': '8px',
+                                        'border': 'none',
+                                        'borderRadius': '4px',
+                                        'cursor': 'pointer',
+                                        'width': '100%'
+                                    }
+                                )
+                            ])
+                        ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px'})
+                    ], style={'width': '30%', 'display': 'inline-block', 'verticalAlign': 'top', 'paddingLeft': '20px'})
+                ]),
                 
-                # Right side: Images
+                # Images and Info Table Section
                 html.Div([
-                    html.Img(id='waypoint-image-left', style={'width': '100%'}),
-                    html.Img(id='waypoint-image-right', style={'width': '100%'})
-                ], style={'width': '30%', 'display': 'inline-block', 'vertical-align': 'top'})
+                    # Images container with flexbox for horizontal layout
+                    html.Div([
+                        html.Div([
+                            html.Img(id='waypoint-image-left', style={
+                                'width': '100%',
+                                'maxWidth': '400px',
+                                'height': 'auto'
+                            })
+                        ], style={'flex': '1', 'padding': '10px', 'textAlign': 'center'}),
+                        html.Div([
+                            html.Img(id='waypoint-image-right', style={
+                                'width': '100%',
+                                'maxWidth': '400px',
+                                'height': 'auto'
+                            })
+                        ], style={'flex': '1', 'padding': '10px', 'textAlign': 'center'})
+                    ], style={
+                        'display': 'flex',
+                        'flexDirection': 'row',
+                        'justifyContent': 'center',
+                        'alignItems': 'center',
+                        'marginTop': '20px',
+                        'gap': '10px'
+                    }),
+                    
+                    # Info table
+                    dash_table.DataTable(
+                        id='waypoint-info',
+                        columns=[
+                            {'name': 'Property', 'id': 'property'},
+                            {'name': 'Value', 'id': 'value'}
+                        ],
+                        data=[],
+                        style_table={'margin-top': '20px', 'width': '100%'},
+                        style_cell={
+                            'textAlign': 'left',
+                            'padding': '10px',
+                            'whiteSpace': 'normal',
+                            'height': 'auto',
+                        },
+                        style_header={
+                            'fontWeight': 'bold',
+                            'backgroundColor': '#f8f9fa',
+                            'textAlign': 'left'
+                        },
+                        style_data={
+                            'whiteSpace': 'normal',
+                            'height': 'auto',
+                        },
+                        style_data_conditional=[
+                            {
+                                'if': {'column_id': 'property'},
+                                'fontWeight': 'bold',
+                                'width': '30%'
+                            }
+                        ]
+                    )
+                ])
             ]),
-            
-            # Bottom info table
-            dash_table.DataTable(
-                id='waypoint-info',
-                columns=[
-                    {'name': 'Property', 'id': 'property'},
-                    {'name': 'Value', 'id': 'value'}
-                ],
-                data=[],
-                style_table={'margin-top': '20px', 'width': '70%'}
-            ),
             
             # Store components
             dcc.Store(id='selected-waypoint-store'),
-            dcc.Store(id='unsaved-changes-store', data={'changes': False})
+            dcc.Store(id='unsaved-changes-store', data={'changes': False}),
+            dcc.Store(id='view-state', data={})
         ])
-
     
     def setup_callbacks(self):
         """Set up the Dash callbacks with fixed image display logic."""
@@ -694,9 +737,10 @@ class DashMapVisualizer:
             [Input('map-graph', 'clickData'),
             Input('object-filter', 'value'),
             Input('use-anchoring', 'value'),
-            Input('unsaved-changes-store', 'data')]
+            Input('unsaved-changes-store', 'data')],
+            [State('map-graph', 'relayoutData')]  # Add this state
         )
-        def update_ui(clickData, selected_objects, use_anchoring, changes_data):
+        def update_ui(clickData, selected_objects, use_anchoring, changes_data, relayoutData):
             # Filter waypoints based on selected objects
             filtered_waypoints = []
             if selected_objects:
@@ -707,12 +751,39 @@ class DashMapVisualizer:
                             if any(obj in visible_objects for obj in selected_objects):
                                 filtered_waypoints.append(waypoint_id)
                                 break
-
-            # Create the map figure
+             # Create the map figure
             map_figure = self.create_graph_figure(
                 filtered_waypoints=filtered_waypoints,
                 use_anchoring=bool('anchor' in (use_anchoring or []))
             )
+            
+            # Preserve the view state
+            if relayoutData:
+                # Keep relevant layout properties
+                view_state = {
+                    k: v for k, v in relayoutData.items()
+                    if k in ['autosize', 'xaxis.range[0]', 'xaxis.range[1]',
+                            'yaxis.range[0]', 'yaxis.range[1]', 'xaxis.autorange',
+                            'yaxis.autorange']
+                }
+                # Apply the saved view state
+                if view_state:
+                    map_figure.update_layout(
+                        xaxis=dict(
+                            range=[
+                                view_state.get('xaxis.range[0]', None),
+                                view_state.get('xaxis.range[1]', None)
+                            ] if 'xaxis.range[0]' in view_state else None,
+                            autorange=view_state.get('xaxis.autorange', None)
+                        ),
+                        yaxis=dict(
+                            range=[
+                                view_state.get('yaxis.range[0]', None),
+                                view_state.get('yaxis.range[1]', None)
+                            ] if 'yaxis.range[0]' in view_state else None,
+                            autorange=view_state.get('yaxis.autorange', None)
+                        )
+                    )
 
             if not clickData:
                 return (
