@@ -20,10 +20,11 @@ from scipy import ndimage
 
 
 class DashMapVisualizer:
-    FRONT_CAMERA_SOURCES = [
-        'frontleft_fisheye_image',
-        'frontright_fisheye_image'
-    ]
+    FRONT_CAMERA_SOURCES = {
+        'left': 'frontright_fisheye_image',  
+        'right': 'frontleft_fisheye_image'  
+    }
+    
     ROTATION_ANGLE = {
         'back_fisheye_image': 0,
         'frontleft_fisheye_image': -90,
@@ -45,17 +46,19 @@ class DashMapVisualizer:
         # Compute global transforms during initialization
         self.compute_global_transforms() # BFS-based global transforms
         self.compute_anchored_transforms() # Seed frame anchoring
-        
-        # Continue with rest of initialization...
-        self.waypoint_annotations = self.load_rag_annotations()
-        self.waypoint_images = self.load_waypoint_images()
-        
-        # Create a default grayscale image
+
+         # Create a default grayscale image
         self.default_image = np.zeros((100, 100), dtype=np.uint8)
         self.default_image.fill(128)
         buffered = BytesIO()
         Image.fromarray(self.default_image).save(buffered, format="JPEG")
         self.default_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
+        # Continue with rest of initialization...
+        self.waypoint_annotations = self.load_rag_annotations()
+        self.waypoint_images = self.load_waypoint_images()
+        
+       
         self.all_labels = self.extract_all_labels()
  
 
@@ -167,46 +170,58 @@ class DashMapVisualizer:
         sorted_objects = sorted(list(objects))
         return sorted_objects
     
-    def load_waypoint_images(self) -> Dict[str, str]:
-        """Load and encode images for each waypoint."""
+    def load_waypoint_images(self) -> Dict[str, Dict[str, str]]:
+        """
+        Load and encode images for each waypoint.
+        Returns:
+            Dict with structure: {waypoint_id: {'left': base64_str, 'right': base64_str}}
+        """
+        print("\nLoading waypoint images...")
         waypoint_images = {}
         
-        for waypoint in self.graph.waypoints:
-            if self.logger:
-                self.logger.info(f"Processing waypoint {waypoint.id}")
-            
-            snapshot_path = os.path.join(self.snapshot_dir, waypoint.snapshot_id)
-            
-            if not os.path.exists(snapshot_path):
+        try:
+            for waypoint in self.graph.waypoints:
                 if self.logger:
-                    self.logger.warning(f"Snapshot not found: {snapshot_path}")
-                continue
+                    self.logger.info(f"Processing waypoint {waypoint.id}")
                 
-            try:
+                snapshot_path = os.path.join(self.snapshot_dir, waypoint.snapshot_id)
+                
+                if not os.path.exists(snapshot_path):
+                    if self.logger:
+                        self.logger.warning(f"Snapshot not found: {snapshot_path}")
+                    continue
                 snapshot = map_pb2.WaypointSnapshot()
                 with open(snapshot_path, 'rb') as f:
                     snapshot.ParseFromString(f.read())
                 
+                # Initialize image dict for this waypoint
+                waypoint_images[waypoint.id] = {
+                    'left': self.default_image_base64,
+                    'right': self.default_image_base64
+                }
                 for image in snapshot.images:
-                    if image.source.name not in self.FRONT_CAMERA_SOURCES:
-                        continue
-                        
-                    opencv_image, _ = self.convert_image_from_snapshot(
-                        image.shot.image,
-                        image.source.name
-                    )
-        
-                    if opencv_image is not None:
-                        waypoint_images[waypoint.id] = self._encode_image_to_base64(opencv_image)
-                        if self.logger:
-                            self.logger.info(f"Successfully added image for waypoint {waypoint.id}")
-                    break  # Only store one image per waypoint
-                        
-            except Exception as e:
+                    # Process only front camera images
+                    if image.source.name == self.FRONT_CAMERA_SOURCES['left']:
+                        opencv_image, _ = self.convert_image_from_snapshot(
+                            image.shot.image,
+                            image.source.name
+                        )
+                        if opencv_image is not None:
+                            waypoint_images[waypoint.id]['left'] = self._encode_image_to_base64(opencv_image)
+                            
+                    elif image.source.name == self.FRONT_CAMERA_SOURCES['right']:
+                        opencv_image, _ = self.convert_image_from_snapshot(
+                            image.shot.image,
+                            image.source.name
+                        )
+                        if opencv_image is not None:
+                            waypoint_images[waypoint.id]['right'] = self._encode_image_to_base64(opencv_image)
+        except Exception as e:
                 if self.logger:
-                    self.logger.error(f"Error processing waypoint {waypoint.id}: {str(e)}")
-                    
+                        self.logger.error(f"Error processing waypoint {waypoint.id}: {str(e)}")
+        print("\nWaypoint images loaded")
         return waypoint_images
+    
 
     def convert_image_from_snapshot(self, image_data, image_source, auto_rotate=True):
         """
@@ -744,6 +759,7 @@ class DashMapVisualizer:
             dcc.Store(id='view-state', data={})
         ])
     
+    
     def setup_callbacks(self):
         """Set up the Dash callbacks with fixed image display logic."""
         @self.app.callback(
@@ -758,7 +774,7 @@ class DashMapVisualizer:
             Input('object-filter', 'value'),
             Input('use-anchoring', 'value'),
             Input('unsaved-changes-store', 'data')],
-            [State('map-graph', 'relayoutData')]  # Add this state
+            [State('map-graph', 'relayoutData')]
         )
         def update_ui(clickData, selected_objects, use_anchoring, changes_data, relayoutData):
             # Filter waypoints based on selected objects
@@ -852,13 +868,17 @@ class DashMapVisualizer:
             waypoint = self.waypoints[waypoint_id]
             current_label = self.label_changes.get(waypoint_id, waypoint.annotations.name)
             
-            # Get images
-            image_data_left = self.waypoint_images.get(waypoint_id, self.default_image_base64)
-            image_data_right = self.waypoint_images.get(waypoint_id, self.default_image_base64)
-            image_src_left = f"data:image/jpeg;base64,{image_data_left}"
-            image_src_right = f"data:image/jpeg;base64,{image_data_right}"
+            # Get images for both views with corrected mapping
+            waypoint_images = self.waypoint_images.get(waypoint_id, {
+                'left': self.default_image_base64,
+                'right': self.default_image_base64
+            })
             
-            # Prepare info table data
+            # Use the corrected mapping for display
+            image_src_left = f"data:image/jpeg;base64,{waypoint_images['left']}"
+            image_src_right = f"data:image/jpeg;base64,{waypoint_images['right']}"
+            
+            # Update the info table with the correct view assignments
             info = []
             info.append({'property': 'Waypoint ID', 'value': waypoint_id})
             info.append({'property': 'Location', 'value': current_label})
@@ -867,9 +887,11 @@ class DashMapVisualizer:
                 ann = self.waypoint_annotations[waypoint_id]
                 if "views" in ann:
                     for view_type, view_data in ann["views"].items():
+                        # Map the view type to the correct side
+                        display_type = "Left View" if "right" in view_type.lower() else "Right View"
                         objects = view_data.get("visible_objects", [])
                         if objects:
-                            info.append({'property': f"{view_type} Objects", 'value': ", ".join(objects)})
+                            info.append({'property': f"{display_type} Objects", 'value': ", ".join(objects)})
             
             return (
                 map_figure,
