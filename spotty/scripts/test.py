@@ -1,21 +1,22 @@
-from dash import Dash, dcc, html, Input, Output, dash_table, State
-import plotly.graph_objects as go
+import argparse
+import base64
+import json
+import os
+import re
+from datetime import datetime
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple
+
+import cv2
 import dash
 import numpy as np
-from bosdyn.api.graph_nav import map_pb2
+import plotly.graph_objects as go
 from bosdyn.api import image_pb2
-import os
-import json
-import base64
-from typing import Dict, Tuple, List, Optional
-from io import BytesIO
-import cv2
-from scipy import ndimage
-from PIL import Image
-from datetime import datetime
-import re
+from bosdyn.api.graph_nav import map_pb2
 from bosdyn.client.math_helpers import SE3Pose
-import numpy as np
+from dash import Dash, Input, Output, State, dash_table, dcc, html
+from PIL import Image
+from scipy import ndimage
 
 
 class DashMapVisualizer:
@@ -31,12 +32,12 @@ class DashMapVisualizer:
         'right_fisheye_image': 180
     }
 
-    def __init__(self, graph_path: str, rag_db_path: str, logger=None):
+    def __init__(self, map_path: str, rag_path: str, logger=None):
         """Initialize the Dash map visualizer."""
-        self.graph_path = graph_path
-        self.rag_db_path = rag_db_path
+        self.map_path = map_path
+        self.rag_db_path = rag_path
         self.logger = logger
-        self.snapshot_dir = os.path.join(self.graph_path, "waypoint_snapshots")
+        self.snapshot_dir = os.path.join(self.map_path, "waypoint_snapshots")
         
         # Load data
         self.graph, self.waypoints, self.snapshots, self.anchors, self.anchored_world_objects = self.load_graph()
@@ -67,7 +68,7 @@ class DashMapVisualizer:
         self.setup_callbacks()
 
         # Add path for saving updated graph
-        self.graph_file_path = os.path.join(self.graph_path, "graph")
+        self.graph_file_path = os.path.join(self.map_path, "graph")
         self.label_changes = {}
     
     def extract_all_labels(self) -> List[str]:
@@ -99,7 +100,7 @@ class DashMapVisualizer:
         
     def load_graph(self) -> Tuple[map_pb2.Graph, Dict, Dict, Dict, Dict]:
         """Load GraphNav map data including anchoring information."""
-        with open(os.path.join(self.graph_path, "graph"), "rb") as f:
+        with open(os.path.join(self.map_path, "graph"), "rb") as f:
             graph = map_pb2.Graph()
             graph.ParseFromString(f.read())
             
@@ -143,11 +144,9 @@ class DashMapVisualizer:
         return annotations
     @staticmethod
     def _clean_text(text):
-        # Remove articles
+        "Remove articles, plurals, and lower-case"
         text = re.sub(r'\b(a|an|the)\b', '', text)
-        # Remove plurals
         text = re.sub(r's\b', '', text)
-        # Convert to lowercase
         text = text.lower()
         return text
     
@@ -166,7 +165,6 @@ class DashMapVisualizer:
                     objects.update(cleaned_objects)
         
         sorted_objects = sorted(list(objects))
-        print("\nFinal unique objects:", sorted_objects)
         return sorted_objects
     
     def load_waypoint_images(self) -> Dict[str, str]:
@@ -515,7 +513,7 @@ class DashMapVisualizer:
                 
                 obj_x.append(position[0])
                 obj_y.append(position[1])
-                obj_texts.append(f"Object ID: {obj_id}")
+                obj_texts.append(f"Anchor: {obj_id}")
             
             if obj_x:  # Only add if there are objects
                 fig.add_trace(
@@ -543,7 +541,7 @@ class DashMapVisualizer:
             plot_bgcolor='white',
             xaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
             yaxis=dict(showgrid=True, gridwidth=1, gridcolor='LightGray'),
-            title=f"Graph View ({'Seed Frame' if use_anchoring else 'BFS Frame'})"
+            title=None
         )
         
         # Make axes equal scale
@@ -553,6 +551,8 @@ class DashMapVisualizer:
         )
         
         return fig
+    
+
     def setup_layout(self):
         """Set up the Dash app layout with label dropdown."""
         self.app.layout = html.Div([
@@ -574,17 +574,18 @@ class DashMapVisualizer:
                 html.Button(
                     'Save Changes',
                     id='save-changes-button',
-                    style={
-                        'width': '20%',
-                        'display': 'inline-block',
-                        'backgroundColor': '#4CAF50',
-                        'color': 'white',
-                        'padding': '10px',
-                        'border': 'none',
-                        'borderRadius': '4px',
-                        'cursor': 'pointer'
-                    }
-                ),
+                        style={
+                            'width': '20%',
+                            'display': 'inline-block',
+                            'backgroundColor': '#4CAF50',
+                            'color': 'white',
+                            'padding': '10px',
+                            'border': 'none',
+                            'borderRadius': '10px',
+                            'cursor': 'pointer',
+                            'margin': '10px'
+                        }
+                    ),
                 html.Div(
                     id='save-status',
                     style={'width': '10%', 'display': 'inline-block', 'paddingLeft': '10px'}
@@ -600,19 +601,20 @@ class DashMapVisualizer:
                         dcc.Graph(
                             id='map-graph',
                             figure=self.create_graph_figure(),
-                            style={'height': '500px'},
+                            style={'height': '500px', 'width': '100%'},  # Full width of its container
                             config={
                                 'displayModeBar': True,
                                 'scrollZoom': True,
                                 'doubleClick': 'reset'
                             }
                         )
-                    ], style={'width': '70%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                    ], style={'width': '60%', 'display': 'inline-block', 'verticalAlign': 'top'}),
                     
                     # Label editing section (next to graph)
                     html.Div([
                         html.Div([
-                            html.H4('Edit Waypoint Label', style={'marginBottom': '10px'}),
+                            html.H4('Edit Waypoint Label', style={'marginBottom': '10px', 'text-align': 'center', 'fontWeight': 'bold', "marginTop": "none"}),
+                            
                             html.Div([
                                 html.Strong('Selected Waypoint: '),
                                 html.Span(id='selected-waypoint-id', style={'marginLeft': '10px'})
@@ -620,7 +622,7 @@ class DashMapVisualizer:
                             html.Div([
                                 html.Strong('Current Label: '),
                                 html.Span(id='current-label', style={'marginLeft': '10px'})
-                            ], style={'marginTop': '10px'}),
+                            ], style={'marginTop': '10px', 'marginBottom': '10px'}),
                             html.Div([
                                 dcc.Dropdown(
                                     id='label-dropdown',
@@ -653,34 +655,52 @@ class DashMapVisualizer:
                                 )
                             ])
                         ], style={'padding': '20px', 'backgroundColor': '#f8f9fa', 'borderRadius': '4px'})
-                    ], style={'width': '30%', 'display': 'inline-block', 'verticalAlign': 'top', 'paddingLeft': '20px'})
-                ]),
+                    ], style={'width': '40%', 'display': 'inline-block', 'verticalAlign': 'top', 'paddingLeft': '20px'})
+                ], style={'display': 'flex', 'flexDirection': 'row', 'gap': '20px'}),  # Flexbox for side-by-side layout
                 
                 # Images and Info Table Section
                 html.Div([
                     # Images container with flexbox for horizontal layout
                     html.Div([
                         html.Div([
+                            html.Div("Left", style={'textAlign': 'center', 'fontWeight': 'bold', 'marginBottom': '5px'}),
                             html.Img(id='waypoint-image-left', style={
                                 'width': '100%',
                                 'maxWidth': '400px',
-                                'height': 'auto'
+                                'height': 'auto',
+                                'margin': '0',  # Reset margin
+                                'padding': '0'  # Reset padding
                             })
-                        ], style={'flex': '1', 'padding': '10px', 'textAlign': 'center'}),
+                        ], style={
+                            'flex': '1',
+                            'padding': '0',  # Reset padding
+                            'margin': '0',   # Reset margin
+                            'textAlign': 'center'
+                        }),
                         html.Div([
+                            html.Div("Right", style={'textAlign': 'center', 'fontWeight': 'bold', 'marginBottom': '5px'}),
                             html.Img(id='waypoint-image-right', style={
                                 'width': '100%',
                                 'maxWidth': '400px',
-                                'height': 'auto'
+                                'height': 'auto',
+                                'margin': '0',  # Reset margin
+                                'padding': '0'  # Reset padding
                             })
-                        ], style={'flex': '1', 'padding': '10px', 'textAlign': 'center'})
+                        ], style={
+                            'flex': '1',
+                            'padding': '0',  # Reset padding
+                            'margin': '0',   # Reset margin
+                            'textAlign': 'center'
+                        })
                     ], style={
                         'display': 'flex',
                         'flexDirection': 'row',
                         'justifyContent': 'center',
                         'alignItems': 'center',
                         'marginTop': '20px',
-                        'gap': '10px'
+                        'gap': '5px',  # Reduced gap between images
+                        'padding': '0',  # Reset padding
+                        'margin': '0'   # Reset margin
                     }),
                     
                     # Info table
@@ -939,9 +959,13 @@ class DashMapVisualizer:
         self.app.run(debug=debug, port=port)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--map-path", type=str, default="../assets/maps/chair_v3")
+    parser.add_argument("--rag-path", type=str, default="../assets/database/chair_v3")
+    args = parser.parse_args()
     visualizer = DashMapVisualizer(
-        graph_path="visualizer/assets/maps/chair_v3",
-        rag_db_path="visualizer/assets/database/chair_v3",
+        map_path=args.map_path,
+        rag_path=args.rag_path,
         logger=None
     )
     visualizer.run()
