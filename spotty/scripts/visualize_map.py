@@ -1,3 +1,16 @@
+"""Visualize GraphNav maps with Dash and enable waypoint label editing.
+To run:
+1. Install the required packages using the following command:
+```bash
+pip install dash
+pip install dash-table
+pip install plotly
+```
+2. Run the script using the following command:
+```bash
+python visualize_map.py --map-path /path/to/map --rag-path /path/to/rag_db
+"""
+
 import argparse
 import base64
 import json
