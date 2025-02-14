@@ -10,6 +10,23 @@ from spotty.annotation import MultimodalRAGAnnotator
 from spotty.utils.common_utils import get_map_paths
 from spotty import MAP_PATH, RAG_DB_PATH, KEYWORD_PATH
 
+from bosdyn.api import image_pb2
+from bosdyn.client.image import build_image_request
+import numpy as np
+import cv2
+from scipy import ndimage
+import base64
+import time
+from openai import OpenAI
+
+
+ROTATION_ANGLE = {
+    'back_fisheye_image': 0,
+    'frontleft_fisheye_image': -90,
+    'frontright_fisheye_image': -90,
+    'left_fisheye_image': 0,
+    'right_fisheye_image': 180
+}
 
 @dataclass
 class SpotState:
@@ -55,6 +72,71 @@ class UnifiedSpotInterface:
         self._init_graph_nav(robot, map_path)
         self._init_rag_system(map_path, vector_db_path)
         self._init_audio_components(system_prompt, keyword_path, audio_device_index)
+        self.image_client = robot.ensure_client('image')
+        self.current_images = {}
+        self.image_thread = None
+        self._init_image_fetching()
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    def _init_image_fetching(self):
+        """Initialize image fetching thread"""
+        self.logger.info("Starting image fetching thread...")
+        
+        # List available image sources
+        image_sources = self.image_client.list_image_sources()
+        # Extract names of available image sources
+        image_sources_name = [source.name for source in image_sources]
+        
+        # Check if the required sources are available
+        required_sources = ['frontright_fisheye_image', 'frontleft_fisheye_image']
+        for source in required_sources:
+            if source not in image_sources_name:
+                self.logger.error(f"Required image source {source} not available")
+                raise Exception(f"Required image source {source} not available")
+        
+        self.image_thread = threading.Thread(target=self._fetch_images_loop, daemon=True)
+        self.image_thread.start()
+        self.logger.info("Image fetching thread started")
+    
+    def _fetch_images_loop(self):
+        """Continuously fetch images from the robot's cameras"""
+        image_sources = ['frontright_fisheye_image', 'frontleft_fisheye_image']
+        image_requests = [build_image_request(source, quality_percent=75) for source in image_sources]
+        self.is_running = True
+        while self.is_running:
+            try:
+                self.logger.debug("Fetching images...")
+                image_responses = self.image_client.get_image(image_requests)
+                self.logger.debug(f"Received {len(image_responses)} images")
+                
+                for image in image_responses:
+                    # Convert proto image to numpy array
+                    dtype = np.uint8
+                    img = np.frombuffer(image.shot.image.data, dtype=dtype)
+                    
+                    # Decode image
+                    if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
+                        img = img.reshape(
+                            (image.shot.image.rows, image.shot.image.cols, 3)
+                        )
+                    else:
+                        img = cv2.imdecode(img, -1)
+                    
+                    # Auto-rotate if needed
+                    if image.source.name in ROTATION_ANGLE:
+                        img = ndimage.rotate(img, ROTATION_ANGLE[image.source.name])
+                    
+                    # Store the latest image
+                    self.current_images[image.source.name] = img
+                    self.logger.debug(f"Stored image from {image.source.name}")
+
+                # Add a small delay to avoid overwhelming the robot
+                time.sleep(0.5)
+
+            except Exception as e:
+                self.logger.error(f"Error fetching images: {str(e)}")
+                continue
+
 
     def _init_rag_system(self, map_path: str, vector_db_path: str):
         """Initialize RAG system"""
@@ -97,6 +179,27 @@ class UnifiedSpotInterface:
             self.logger.error(f"Failed to initialize audio components: {str(e)}")
             raise
 
+
+    def _init_graph_nav(self, robot, map_path: str):
+        """Initialize the GraphNav component"""
+        try:
+            self.logger.info("Initializing GraphNav...")
+            self.graph_nav = GraphNavInterface(robot, map_path)
+            self.graph_nav._initialize_map(maybe_clear=False)
+            self.logger.info("GraphNav initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
+            raise
+    
+    def log_current_images(self):
+        """Log the current images for debugging"""
+        if not self.current_images:
+            self.logger.warning("No images in self.current_images")
+        else:
+            for source, img in self.current_images.items():
+                self.logger.info(f"Image from {source} has shape {img.shape}")
+
+
     def _handle_interaction(self):
         """Handle a single interaction turn"""
         try:
@@ -128,10 +231,12 @@ class UnifiedSpotInterface:
             # Extract command and parameters from response
             if "navigate_to(" in response:
                 parts = response.split("navigate_to(")[1].split(")")[0].split(",")
-                # remove trailing quotation marks " from parts[0]
                 parts[0] = parts[0].strip('"')
                 self._handle_navigation(parts[0].strip(), parts[1].strip() if len(parts) > 1 else None)
             
+            elif "describe_scene(" in response:
+                query = response.split("describe_scene(")[1].split(")")[0].strip('"')
+                self._handle_vqa(query)
             elif "say(" in response:
                 phrase = response.split("say(")[1].split(")")[0].strip('"')
                 self._handle_speech(phrase)
@@ -152,16 +257,92 @@ class UnifiedSpotInterface:
             self.logger.error(f"Error parsing command: {e}")
             self._handle_speech("I had trouble understanding how to handle that request.")
 
-    def _init_graph_nav(self, robot, map_path: str):
-        """Initialize the GraphNav component"""
+    
+    
+    def _handle_vqa(self, query: str):
+        """Handle visual question answering using GPT-4V-mini with unified scene understanding"""
         try:
-            self.logger.info("Initializing GraphNav...")
-            self.graph_nav = GraphNavInterface(robot, map_path)
-            self.graph_nav._initialize_map(maybe_clear=False)
-            self.logger.info("GraphNav initialized successfully")
+            self.log_current_images()
+            if not self.current_images:
+                self._handle_speech("I don't have access to camera images")
+                return
+            elif not self.openai_client:
+                self._handle_speech("I don't have access to the OpenAI vision model")
+
+            # Enhanced system prompt for unified scene understanding
+            messages = [
+                {
+                    "role": "system",
+                    "content": """
+                    You are assisting a robot in analyzing its environment through two camera feeds 
+                    that show the left and right front views. These images together form a wider 
+                    view of the scene. When describing what you see:
+                    
+                    1. Provide a single, coherent description that combines information from both views
+                    2. Focus on spatial relationships between objects across both images
+                    3. Avoid mentioning "left camera" or "right camera" unless specifically asked
+                    4. Describe the scene as if you're looking at it from the robot's perspective
+                    5. If you see the same object in both images, mention it only once
+                    Be creative and have fun with your responses!
+                    Be concise(3-4 sentences)
+                    Remember to address the user's specific query in your response.
+                    """
+                }
+            ]
+
+            # Create the user message with text and images
+            user_content = [{"type": "text", "text": query}]
+
+            # Process each camera image
+            for source, img in self.current_images.items():
+                try:
+                    # Convert numpy array to base64
+                    success, buffer = cv2.imencode('.jpg', img)
+                    if success:
+                        base64_image = base64.b64encode(buffer).decode('utf-8')
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        })
+                except Exception as e:
+                    self.logger.error(f"Error processing image from {source}: {str(e)}")
+                    continue
+
+            # Add user message with text and images
+            messages.append({
+                "role": "user",
+                "content": user_content
+            })
+
+            # Call GPT-4V-mini
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages
+                )
+                
+                vqa_response = response.choices[0].message.content
+                # Speak the response
+                self._handle_speech(vqa_response)
+                
+                # Add to chat history
+                self.chat_client.add_to_history({
+                    "role": "user",
+                    "content": f"[Visual Query] {query}"
+                })
+                self.chat_client.add_to_history({
+                    "role": "assistant",
+                    "content": vqa_response
+                })
+            except Exception as e:
+                self.logger.error(f"Error calling vision model: {str(e)}")
+                self._handle_speech("I had trouble analyzing the images. Please try again.")
+
         except Exception as e:
-            self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
-            raise
+            self.logger.error(f"Error in VQA: {str(e)}")
+            self._handle_speech("I encountered an error processing your visual query.")
 
     def _handle_navigation(self, waypoint_id: str, phrase: Optional[str] = None, search_query: Optional[str] = False):
         """Handle navigation to waypoint"""
@@ -181,6 +362,9 @@ class UnifiedSpotInterface:
             # Update state after successful navigation
             self.state.prev_waypoint_id = self.state.waypoint_id
             self.state.waypoint_id = waypoint_id
+            print(f"Current location: {self.state.location}")
+            print(f"Previous location: {self.state.prev_location}")
+            
             
             # Get waypoint annotations from RAG
             annotations = self.rag_system.get_waypoint_annotations(waypoint_id)
@@ -215,26 +399,77 @@ class UnifiedSpotInterface:
             self._handle_speech("I couldn't find anything matching your search.")
 
     def _handle_question(self, question: str):
-        """Handle interactive questions"""
-        self._handle_speech(question)
-        
-        # Record and process response
-        audio_file = self.audio_manager.record_audio(max_recording_time=6)
-        if audio_file:
-            response = self.chat_client.speech_to_text(audio_file)
+        """Handle interactive questions with improved context awareness"""
+        try:
+            # 1. First, speak the question
+            self._handle_speech(question)
             
+            # 2. Record and process user's response
+            audio_file = self.audio_manager.record_audio(max_recording_time=6)
+            if not audio_file:
+                return
+                
+            # 3. Convert user's audio response to text
+            user_response = self.chat_client.speech_to_text(audio_file)
+            
+            # 4. Build context from recent history
+            history_context = []
+            for msg in self.chat_client.history:
+                # Convert timestamps to relative time if needed
+                history_context.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+            
+            # 5. Create a contextual prompt for the follow-up response
+            context_prompt = {
+                "role": "system",
+                "content": """Consider the conversation history and current context when responding.
+                            Provide a natural follow-up that builds on previous interactions.
+                            Remember to use exactly one function call in your response."""
+            }
+            
+            # 6. Add the current Q&A exchange to history
             self.chat_client.add_to_history({
                 "role": "assistant",
                 "content": question
             })
             self.chat_client.add_to_history({
                 "role": "user",
-                "content": response
+                "content": user_response
             })
             
-            # Get follow-up response
-            follow_up = self.chat_client.chat_completion(response)
+            # 7. Get contextual follow-up response
+            messages = [
+                context_prompt,
+                *history_context,
+                {"role": "assistant", "content": question},
+                {"role": "user", "content": user_response}
+            ]
+            
+            follow_up = self.chat_client.chat_completion(
+                user_response,
+                messages=messages  # Pass full message history for context
+            )
+            
+            # 8. Add the follow-up to history
+            self.chat_client.add_to_history({
+                "role": "assistant",
+                "content": follow_up
+            })
+            
+            # 9. Extract and speak the response
+            # Remove function wrapper (e.g., say("...")) if present
+            if "say(" in follow_up:
+                follow_up = follow_up.split("say(")[1].split(")")[0].strip('"')
+            elif "ask(" in follow_up:
+                follow_up = follow_up.split("ask(")[1].split(")")[0].strip('"')
+                
             self._handle_speech(follow_up)
+            
+        except Exception as e:
+            self.logger.error(f"Error in _handle_question: {str(e)}")
+            self._handle_speech("I encountered an error processing your response.")
 
     def _command_processing_loop(self):
         """Main loop for processing wake word detection"""
@@ -265,8 +500,12 @@ class UnifiedSpotInterface:
         self.is_running = False
         self.wake_detector.stop()
         self.audio_manager.cleanup()
+        if self.image_thread:
+            self.image_thread.join()
         if self.command_thread:
             self.command_thread.join()
+        self.graph_nav._on_quit()
+
         self.logger.info("Unified interface stopped")
 
 def main():
