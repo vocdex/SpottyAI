@@ -27,8 +27,8 @@ class AudioConfig:
     """Audio configuration settings"""
     format: int = pyaudio.paInt16
     channels: int = 1
-    rate: int = 16000
-    chunk: int = 1024
+    rate: int = 48000   # Sample rate
+    chunk: int = 2048
     temp_file: str = "output.wav"
 
 
