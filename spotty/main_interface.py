@@ -199,7 +199,13 @@ class UnifiedSpotInterface:
             for source, img in self.current_images.items():
                 self.logger.info(f"Image from {source} has shape {img.shape}")
 
+    def sit_robot(self):
+        """Command the robot to sit using GraphNav interface."""
+        return self.graph_nav.sit()
 
+    def stand_robot(self):
+        """Command the robot to stand using GraphNav interface."""
+        return self.graph_nav.stand()
     def _handle_interaction(self):
         """Handle a single interaction turn"""
         try:
@@ -248,7 +254,17 @@ class UnifiedSpotInterface:
             elif "search(" in response:
                 query = response.split("search(")[1].split(")")[0].strip('"')
                 self._handle_search(query)
-            
+            elif "sit(" in response:
+                if self.sit_robot():
+                    self._handle_speech("I am now sitting.")
+                else:
+                    self._handle_speech("I had trouble sitting down.")
+                    
+            elif "stand(" in response:
+                if self.stand_robot():
+                    self._handle_speech("I am now standing.")
+                else:
+                    self._handle_speech("I had trouble standing up.")
             else:
                 self.logger.warning(f"Unknown command in response: {response}")
                 self._handle_speech("I'm not sure how to handle that request.")
@@ -284,7 +300,7 @@ class UnifiedSpotInterface:
                     4. Describe the scene as if you're looking at it from the robot's perspective
                     5. If you see the same object in both images, mention it only once
                     Be creative and have fun with your responses!
-                    Be concise(3-4 sentences)
+                    Be concise(2-3 sentences)
                     Remember to address the user's specific query in your response.
                     """
                 }
@@ -348,6 +364,8 @@ class UnifiedSpotInterface:
         """Handle navigation to waypoint"""
         if phrase:
             self._handle_speech(phrase)
+            # Give some time for the speech to finish
+            time.sleep(3)
         
         # Execute navigation
         destination = (waypoint_id, None)
@@ -356,7 +374,8 @@ class UnifiedSpotInterface:
         if search_query:
             is_successful=self.graph_nav._navigate_to(destination)
         else:
-            is_successful= self.graph_nav._navigate_to_by_annotation(destination)
+            is_successful, matching_waypoint_id= self.graph_nav._navigate_to_by_location(destination)
+            waypoint_id = matching_waypoint_id
         
         if is_successful:
             # Update state after successful navigation
@@ -382,21 +401,83 @@ class UnifiedSpotInterface:
         audio_file = self.chat_client.text_to_speech(text)
         if audio_file:
             self.audio_manager.play_audio(audio_file)
+        else:
+            self.logger.error("Failed to generate audio file")
 
     def _handle_search(self, query: str):
-        """Handle environment search using RAG"""
-        enhanced_query ="Where do you see a " + query + "?"
-        results = self.rag_system.query_location(enhanced_query, k=3)
-        # Get the first result and navigate to it
-        if results:
-            result = results[0]
+        """Handle environment search using RAG with location-based disambiguation"""
+        enhanced_query = "Where do you see a " + query + "?"
+        results = self.rag_system.query_location(enhanced_query, k=5)  # Increased k to get more potential locations
+        
+        if not results:
+            self._handle_speech("I couldn't find anything matching your search.")
+            return
+            
+        # Group results by location
+        locations = {}
+        for result in results:
+            location = result['location']
+            if location not in locations:
+                locations[location] = result
+        
+        if len(locations) == 1:
+            # If only one location, proceed directly
+            result = next(iter(locations.values()))
             self._handle_navigation(
                 result["waypoint_id"],
-                f"I found what you're looking for at {result['location']}. Let me take you there.",
+                f"I found {query} in {result['location']}. Let me take you there.",
                 search_query=True
             )
         else:
-            self._handle_speech("I couldn't find anything matching your search.")
+            # Multiple locations found, ask user for preference
+            location_list = ", ".join([f"{i+1}: {loc}" for i, loc in enumerate(locations.keys())])
+            question = f"I found {query} in multiple locations: {location_list}. Which location would you prefer?"
+            print(locations)
+            # print waypoint_id s in all locations
+            for loc in locations.keys():
+                print(f"Location: {loc}")
+                print(f"Waypoint ID: {locations[loc]['waypoint_id']}")
+            self._handle_speech(question)
+            
+            # Record and process user's response
+            audio_file = self.audio_manager.record_audio(max_recording_time=6)
+            if not audio_file:
+                return
+                
+            response = self.chat_client.speech_to_text(audio_file)
+            
+            # Process the response to extract location choice
+            try:
+                # Try to match either number or location name
+                chosen_location = None
+                response = response.lower()
+                
+                # First try to match by number
+                for i, loc in enumerate(locations.keys()):
+                    if str(i+1) in response:
+                        chosen_location = loc
+                        break
+                
+                # If no number match, try to match by location name
+                if not chosen_location:
+                    for loc in locations.keys():
+                        if loc.lower() in response:
+                            chosen_location = loc
+                            break
+                
+                if chosen_location and chosen_location in locations:
+                    result = locations[chosen_location]
+                    self._handle_navigation(
+                        result["waypoint_id"],
+                        f"Taking you to {query} in {chosen_location}.",
+                        search_query=True
+                    )
+                else:
+                    self._handle_speech("I'm sorry, I couldn't understand which location you prefer. Please try your search again.")
+                    
+            except Exception as e:
+                self.logger.error(f"Error processing location choice: {e}")
+                self._handle_speech("I had trouble understanding your choice. Please try your search again.")
 
     def _handle_question(self, question: str):
         """Handle interactive questions with improved context awareness"""
