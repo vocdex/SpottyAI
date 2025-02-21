@@ -82,9 +82,7 @@ class UnifiedSpotInterface:
         """Initialize image fetching thread"""
         self.logger.info("Starting image fetching thread...")
         
-        # List available image sources
         image_sources = self.image_client.list_image_sources()
-        # Extract names of available image sources
         image_sources_name = [source.name for source in image_sources]
         
         # Check if the required sources are available
@@ -110,11 +108,9 @@ class UnifiedSpotInterface:
                 self.logger.debug(f"Received {len(image_responses)} images")
                 
                 for image in image_responses:
-                    # Convert proto image to numpy array
                     dtype = np.uint8
                     img = np.frombuffer(image.shot.image.data, dtype=dtype)
                     
-                    # Decode image
                     if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
                         img = img.reshape(
                             (image.shot.image.rows, image.shot.image.cols, 3)
@@ -122,15 +118,12 @@ class UnifiedSpotInterface:
                     else:
                         img = cv2.imdecode(img, -1)
                     
-                    # Auto-rotate if needed
                     if image.source.name in ROTATION_ANGLE:
                         img = ndimage.rotate(img, ROTATION_ANGLE[image.source.name])
                     
-                    # Store the latest image
                     self.current_images[image.source.name] = img
                     self.logger.debug(f"Stored image from {image.source.name}")
 
-                # Add a small delay to avoid overwhelming the robot
                 time.sleep(0.5)
 
             except Exception as e:
@@ -160,13 +153,10 @@ class UnifiedSpotInterface:
         try:
             self.logger.info("Initializing audio components...")
             
-            # Initialize audio manager
             self.audio_manager = AudioManager(AudioConfig())
             
-            # Initialize chat client
             self.chat_client = ChatClient(system_prompt=system_prompt)
             
-            # Initialize wake word detector
             wake_config = WakeWordConfig(
                 access_key=os.getenv("PICOVOICE_ACCESS_KEY"),
                 keyword_path=keyword_path,
@@ -206,25 +196,22 @@ class UnifiedSpotInterface:
     def stand_robot(self):
         """Command the robot to stand using GraphNav interface."""
         return self.graph_nav.stand()
+
     def _handle_interaction(self):
         """Handle a single interaction turn"""
         try:
-            # Record and transcribe audio
             audio_file = self.audio_manager.record_audio(max_recording_time=6)
             self.audio_manager.play_feedback_sound("stop")
             
             if not audio_file:
                 return
             
-            # Convert speech to text
             user_input = self.chat_client.speech_to_text(audio_file)
             print(f"\nUser: {user_input}")
             
-            # Get LLM response with function calling
             response = self.chat_client.chat_completion(user_input)
             print(f"\nSpot's decision: {response}")
             
-            # Parse and execute command
             self._parse_and_execute_command(response)
             
         except Exception as e:
@@ -234,7 +221,6 @@ class UnifiedSpotInterface:
     def _parse_and_execute_command(self, response: str):
         """Parse LLM response and execute corresponding command"""
         try:
-            # Extract command and parameters from response
             if "navigate_to(" in response:
                 parts = response.split("navigate_to(")[1].split(")")[0].split(",")
                 parts[0] = parts[0].strip('"')
@@ -285,7 +271,6 @@ class UnifiedSpotInterface:
             elif not self.openai_client:
                 self._handle_speech("I don't have access to the OpenAI vision model")
 
-            # Enhanced system prompt for unified scene understanding
             messages = [
                 {
                     "role": "system",
@@ -306,13 +291,10 @@ class UnifiedSpotInterface:
                 }
             ]
 
-            # Create the user message with text and images
             user_content = [{"type": "text", "text": query}]
 
-            # Process each camera image
             for source, img in self.current_images.items():
                 try:
-                    # Convert numpy array to base64
                     success, buffer = cv2.imencode('.jpg', img)
                     if success:
                         base64_image = base64.b64encode(buffer).decode('utf-8')
@@ -326,13 +308,11 @@ class UnifiedSpotInterface:
                     self.logger.error(f"Error processing image from {source}: {str(e)}")
                     continue
 
-            # Add user message with text and images
             messages.append({
                 "role": "user",
                 "content": user_content
             })
 
-            # Call GPT-4V-mini
             try:
                 response = self.openai_client.chat.completions.create(
                     model="gpt-4o-mini",
@@ -340,10 +320,8 @@ class UnifiedSpotInterface:
                 )
                 
                 vqa_response = response.choices[0].message.content
-                # Speak the response
                 self._handle_speech(vqa_response)
                 
-                # Add to chat history
                 self.chat_client.add_to_history({
                     "role": "user",
                     "content": f"[Visual Query] {query}"
@@ -378,14 +356,12 @@ class UnifiedSpotInterface:
             waypoint_id = matching_waypoint_id
         
         if is_successful:
-            # Update state after successful navigation
             self.state.prev_waypoint_id = self.state.waypoint_id
             self.state.waypoint_id = waypoint_id
             print(f"Current location: {self.state.location}")
             print(f"Previous location: {self.state.prev_location}")
             
             
-            # Get waypoint annotations from RAG
             annotations = self.rag_system.get_waypoint_annotations(waypoint_id)
             if annotations:
                 self.state.location = annotations.get('location', '')
@@ -421,7 +397,6 @@ class UnifiedSpotInterface:
                 locations[location] = result
         
         if len(locations) == 1:
-            # If only one location, proceed directly
             result = next(iter(locations.values()))
             self._handle_navigation(
                 result["waypoint_id"],
@@ -432,11 +407,6 @@ class UnifiedSpotInterface:
             # Multiple locations found, ask user for preference
             location_list = ", ".join([f"{i+1}: {loc}" for i, loc in enumerate(locations.keys())])
             question = f"I found {query} in multiple locations: {location_list}. Which location would you prefer?"
-            print(locations)
-            # print waypoint_id s in all locations
-            for loc in locations.keys():
-                print(f"Location: {loc}")
-                print(f"Waypoint ID: {locations[loc]['waypoint_id']}")
             self._handle_speech(question)
             
             # Record and process user's response
@@ -446,19 +416,16 @@ class UnifiedSpotInterface:
                 
             response = self.chat_client.speech_to_text(audio_file)
             
-            # Process the response to extract location choice
             try:
                 # Try to match either number or location name
                 chosen_location = None
                 response = response.lower()
                 
-                # First try to match by number
                 for i, loc in enumerate(locations.keys()):
                     if str(i+1) in response:
                         chosen_location = loc
                         break
                 
-                # If no number match, try to match by location name
                 if not chosen_location:
                     for loc in locations.keys():
                         if loc.lower() in response:
@@ -482,27 +449,21 @@ class UnifiedSpotInterface:
     def _handle_question(self, question: str):
         """Handle interactive questions with improved context awareness"""
         try:
-            # 1. First, speak the question
             self._handle_speech(question)
             
-            # 2. Record and process user's response
             audio_file = self.audio_manager.record_audio(max_recording_time=6)
             if not audio_file:
                 return
                 
-            # 3. Convert user's audio response to text
             user_response = self.chat_client.speech_to_text(audio_file)
             
-            # 4. Build context from recent history
             history_context = []
             for msg in self.chat_client.history:
-                # Convert timestamps to relative time if needed
                 history_context.append({
                     "role": msg["role"],
                     "content": msg["content"]
                 })
             
-            # 5. Create a contextual prompt for the follow-up response
             context_prompt = {
                 "role": "system",
                 "content": """Consider the conversation history and current context when responding.
@@ -510,7 +471,6 @@ class UnifiedSpotInterface:
                             Remember to use exactly one function call in your response."""
             }
             
-            # 6. Add the current Q&A exchange to history
             self.chat_client.add_to_history({
                 "role": "assistant",
                 "content": question
@@ -520,7 +480,6 @@ class UnifiedSpotInterface:
                 "content": user_response
             })
             
-            # 7. Get contextual follow-up response
             messages = [
                 context_prompt,
                 *history_context,
@@ -533,14 +492,11 @@ class UnifiedSpotInterface:
                 messages=messages  # Pass full message history for context
             )
             
-            # 8. Add the follow-up to history
             self.chat_client.add_to_history({
                 "role": "assistant",
                 "content": follow_up
             })
             
-            # 9. Extract and speak the response
-            # Remove function wrapper (e.g., say("...")) if present
             if "say(" in follow_up:
                 follow_up = follow_up.split("say(")[1].split(")")[0].strip('"')
             elif "ask(" in follow_up:
