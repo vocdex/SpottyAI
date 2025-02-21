@@ -26,6 +26,7 @@ from bosdyn.client.robot_state import RobotStateClient
 from spotty.utils import graph_nav_utils
 from spotty.mapping.navigator import WaypointNavigator, NavigationCommand, FarthestWaypointStrategy, ClosestWaypointStrategy, NavigationResult
 from typing import List, Tuple
+import bosdyn.client.robot_command as robot_command
 
 class GraphNavInterface(object):
     """GraphNav service command line interface."""
@@ -88,7 +89,7 @@ class GraphNavInterface(object):
             '7': self._navigate_route,
             '8': self._navigate_to_anchor,
             '9': self._clear_graph,
-            '10': self._navigate_to_by_annotation,
+            '10': self._navigate_to_by_location,
             '11': self._initialize_map
         }
 
@@ -316,15 +317,15 @@ class GraphNavInterface(object):
 
         self._lease = self._lease_wallet.advance()
         self._lease_keepalive = LeaseKeepAlive(self._lease_client)
-
-        # Update the lease and power off the robot if appropriate.
-        if self._powered_on and not self._started_powered_on:
-            # Sit the robot down + power off after the navigation command is complete.
-            self.toggle_power(should_power_on=False)
+        # Remove power-off behavior for now
+        # # Update the lease and power off the robot if appropriate.
+        # if self._powered_on and not self._started_powered_on:
+        #     # Sit the robot down + power off after the navigation command is complete.
+        #     self.toggle_power(should_power_on=False)
     
         return is_finished
     
-    def _navigate_to_by_annotation(self, *args):
+    def _navigate_to_by_location(self, *args):
         """Navigate to the most central waypoint with a given annotation."""
         if len(args) < 1:
             print("No waypoint annotation provided as a destination.")
@@ -375,7 +376,7 @@ class GraphNavInterface(object):
             print("Using the first matching waypoint instead.")
             destination_waypoint = matching_waypoints[0].id
         matching_waypoints = [waypoint.id for waypoint in matching_waypoints]
-        print(f"The following waypoints matched your query: {matching_waypoints}")
+        # print(f"The following waypoints matched your query: {matching_waypoints}")
         print(f"Destination waypoint: {destination_waypoint}")
 
         # Lease and power management
@@ -409,11 +410,12 @@ class GraphNavInterface(object):
         self._lease = self._lease_wallet.advance()
         self._lease_keepalive = LeaseKeepAlive(self._lease_client)
         
-        # Power off if appropriate
-        if self._powered_on and not self._started_powered_on:
-            self.toggle_power(should_power_on=False)
+        # Remove power-off behavior for now
+        # # Power off if appropriate
+        # if self._powered_on and not self._started_powered_on:
+        #     self.toggle_power(should_power_on=False)
         
-        return is_finished
+        return is_finished, destination_waypoint # return waypoint id for annotation in main interface
 
     def _navigate_route(self, *args):
         """Navigate through a specific route of waypoints."""
@@ -576,6 +578,30 @@ class GraphNavInterface(object):
         command = NavigationCommand(FarthestWaypointStrategy(), matching_waypoints)
         return navigator.execute_navigation(command)
     
+    def sit(self):
+        """Command the robot to sit."""
+        try:
+            cmd = RobotCommandBuilder.synchro_sit_command()
+            # Wait for the sit command to complete
+            robot_command.blocking_sit(self._robot_command_client,timeout_sec=5)
+            # Power off the robot after sitting
+            self.toggle_power(should_power_on=False)
+            return True
+        except Exception as e:
+            print(f"Error in sit command: {e}")
+            return False
+        
+    def stand(self):
+        """Command the robot to stand."""
+        # If not powered on, power on the robot first
+        if not self._powered_on:
+            self.toggle_power(should_power_on=True)
+        try:
+            robot_command.blocking_stand(self._robot_command_client,timeout_sec=5)
+            return True
+        except Exception as e:
+            print(f"Error in stand command: {e}")
+            return False
     
     def _initialize_map(self, maybe_clear=False):
         """Upload the map, localize to nearest fiducial, and list waypoints."""
