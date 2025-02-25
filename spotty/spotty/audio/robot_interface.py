@@ -40,11 +40,12 @@ class AudioManager:
         self._init_pygame_mixer()
 
     def _init_pygame_mixer(self):
-        """Initialize pygame mixer for audio feedback"""
-        try:
-            pygame.mixer.init(44100, -16, 1, 1024)
-        except Exception as e:
-            print(f"Could not initialize pygame mixer: {e}")
+        """Initialize pygame mixer only if not already initialized"""
+        if not pygame.mixer.get_init():
+            try:
+                pygame.mixer.init(44100, -16, 1, 1024)
+            except Exception as e:
+                print(f"Could not initialize pygame mixer: {e}")
 
     def record_audio(self, max_recording_time: int = 5, stop_queue: Optional[queue.Queue] = None) -> Optional[str]:
         """Record audio with progress indication"""
@@ -124,6 +125,7 @@ class AudioManager:
     
     def cleanup(self):
         """Clean up audio resources"""
+        # Close any open audio streams first TODO
         if self.audio:
             self.audio.terminate()
         if pygame.mixer.get_init():
