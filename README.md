@@ -181,6 +181,9 @@ spotty/
 ├── README.md           # This file
 └── setup.py            # Package installation
 ```
+### Pre-recorded Maps and Databases
+To use pre-recorded maps and databases, download the assets folder from Google Drive and place it in the root directory of the project:
+[Spotty Assets](https://drive.google.com/drive/folders/121bVTZ4XUPne3RY7Yg7RoRAkBqK9336t?usp=sharing)
 
 ### Adding New Capabilities
 
