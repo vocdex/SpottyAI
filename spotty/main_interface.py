@@ -189,11 +189,11 @@ class UnifiedSpotInterface:
             for source, img in self.current_images.items():
                 self.logger.info(f"Image from {source} has shape {img.shape}")
 
-    def sit_robot(self):
+    def _sit_robot(self):
         """Command the robot to sit using GraphNav interface."""
         return self.graph_nav.sit()
 
-    def stand_robot(self):
+    def _stand_robot(self):
         """Command the robot to stand using GraphNav interface."""
         return self.graph_nav.stand()
 
@@ -241,14 +241,14 @@ class UnifiedSpotInterface:
                 query = response.split("search(")[1].split(")")[0].strip('"')
                 self._handle_search(query)
             elif "sit(" in response:
-                if self.sit_robot():
-                    self._handle_speech("I am now sitting.")
+                if self._sit_robot():
+                    self._handle_speech("I have sat down and turned off my motors.")
                 else:
                     self._handle_speech("I had trouble sitting down.")
                     
             elif "stand(" in response:
-                if self.stand_robot():
-                    self._handle_speech("I am now standing.")
+                if self._stand_robot():
+                    self._handle_speech("I am now standing and ready to assist.")
                 else:
                     self._handle_speech("I had trouble standing up.")
             else:
@@ -342,8 +342,7 @@ class UnifiedSpotInterface:
         """Handle navigation to waypoint"""
         if phrase:
             self._handle_speech(phrase)
-            # Give some time for the speech to finish
-            time.sleep(3)
+            time.sleep(5)
         
         # Execute navigation
         destination = (waypoint_id, None)
