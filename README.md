@@ -14,7 +14,7 @@ Spotty is a multimodal system that enhances Boston Dynamics' Spot robot with nat
 - **Multimodal RAG System**: Retrieve and generate answers based on robot's location and visual context
 - **Vector Database**: Store and query spatial information efficiently 
 - **Location-Based Responses**: Provide context-aware information relevant to the robot's current position
-- **Object and Scene Understanding**: Recognize objects and environments using visual AI
+- **Object and Scene Understanding**: Recognize objects and environments using GPT vision models
 
 ### 🗺️ Enhanced Navigation
 - **GraphNav Integration**: Navigate complex environments using Boston Dynamics' GraphNav system
@@ -57,14 +57,14 @@ All components leverage modern AI services:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/spotty.git
+   git clone https://github.com/vocdex/SpottyAI.git
    cd spotty
    ```
 
 2. Create and activate a virtual environment:
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows, use: venv\Scripts\activate
+   source venv/bin/activate 
    ```
 
 3. Install the package and dependencies:
@@ -84,25 +84,30 @@ Before using Spotty's navigation features, you'll need to create a map of your e
 
 1. **Record a map**:
    ```bash
-   python -m spotty.scripts.recording_command_line --download-filepath /path/to/save/map ROBOT_IP
+   python /scripts/recording_command_line.py --download-filepath /path/to/save/map ROBOT_IP
    ```
-   Follow the command line prompts to start recording, move the robot around the space, and stop recording.
+   Follow the command line prompts to start recording, move the robot around the space, and stop recording. This will also record camera images as waypoint snapshots. If you have a pre-recorded map, you can skip this step.
 
-2. **Label waypoints** (optional):
+2. **Label waypoints**:
    ```bash
-   python -m spotty.scripts.label_waypoints --map-path /path/to/map --label-method clip --prompts kitchen hallway office
+   python /scripts/label_waypoints.py --map-path /path/to/map --label-method clip --prompts kitchen hallway office
    ```
-   This uses CLIP to automatically label waypoints based on visual cues.
+   This uses CLIP to automatically label waypoint locations based on visual context from recorded waypoint snapshot images.
+   You need to provide a list of locations to label based on your environment.
 
-3. **Create a RAG database** (optional):
+3. **Create a RAG database**:
    ```bash
-   python -m spotty.scripts.label_with_rag --map-path /path/to/map --vector-db-path /path/to/database --maybe-label
+   python scripts/label_with_rag.py --map-path /path/to/map --vector-db-path /path/to/database --maybe-label
    ```
-   This enhances the map with multimodal contextual information.
+   This will create a vector database for efficient waypoint search and retrieval. It will detect visible objects in the waypoint snapshots and generate a short description of the scene using GPT-4o-mini.
 
 4. **View the map**:
    ```bash
-   python -m spotty.scripts.view_map --map-path /path/to/map
+   python scripts/view_map.py --map-path /path/to/map
+   ```
+5. **Visualize the map with waypoint snapshot information**:
+   ```bash
+   python scripts/visualize_map.py --map-path /path/to/map  --rag-path /path/to/database
    ```
 
 ### Running Spotty
@@ -110,13 +115,7 @@ Before using Spotty's navigation features, you'll need to create a map of your e
 Run the main interface:
 
 ```bash
-python -m spotty.main_interface
-```
-
-Or use the CLI shortcut if you've installed the package:
-
-```bash
-spotty-cli
+python main_interface.py
 ```
 
 ## 📚 Usage Examples
@@ -206,4 +205,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📧 Contact
 
-For questions, suggestions, or collaborations, please [open an issue](https://github.com/yourusername/spotty/issues) or contact the maintainers directly.
+For questions, suggestions, or collaborations, please [open an issue](https://github.com/vocdex/SpottyAI/issues) or contact the maintainers directly.
