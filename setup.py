@@ -1,7 +1,7 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
-    name="spotty",  
+    name="spotty",
     version="0.1.0",
     author="Shukrullo Nazirjonov",
     author_email="nazirjonovsh2000@gmail.com",
@@ -13,13 +13,12 @@ setup(
     # install_requires=open("requirements.txt").read().splitlines(),  # Add dependencies here
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",  
+        "License :: OSI Approved :: MIT License",
     ],
     python_requires=">=3.9",  # Specify your minimum Python version
     entry_points={
         "console_scripts": [
-            "spotty-cli=spotty.main_interface:main", 
+            "spotty-cli=spotty.main_interface:main",
         ]
     },
 )
-

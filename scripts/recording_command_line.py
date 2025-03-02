@@ -10,6 +10,7 @@ import os
 import sys
 
 import bosdyn.client.channel
+
 from spotty.mapping.recording_interface import RecordingInterface
 from spotty.utils.robot_utils import auto_authenticate
 
@@ -18,15 +19,18 @@ def main(argv):
     """Run the command-line interface."""
     parser = argparse.ArgumentParser(description=__doc__)
     bosdyn.client.util.add_base_arguments(parser)
-    parser.add_argument('-d', '--download-filepath',
-                        help='Full filepath for where to download graph and snapshots.',
-                        default=os.getcwd())
-    parser.add_argument('hostname', help='The hostname or IP address of the Spot robot.')
+    parser.add_argument(
+        "-d",
+        "--download-filepath",
+        help="Full filepath for where to download graph and snapshots.",
+        default=os.getcwd(),
+    )
+    parser.add_argument("hostname", help="The hostname or IP address of the Spot robot.")
 
     options = parser.parse_args(argv)
 
     # Create robot object.
-    sdk = bosdyn.client.create_standard_sdk('RecordingClient')
+    sdk = bosdyn.client.create_standard_sdk("RecordingClient")
     robot = sdk.create_robot(options.hostname)
     auto_authenticate(robot)
 
@@ -41,6 +45,6 @@ def main(argv):
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if not main(sys.argv[1:]):
         sys.exit(1)

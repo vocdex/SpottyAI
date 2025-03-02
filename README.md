@@ -12,7 +12,7 @@ Spotty is a multimodal system that enhances Boston Dynamics' Spot robot with nat
 
 ### 🧠 Contextual Understanding
 - **Multimodal RAG System**: Retrieve and generate answers based on robot's location and visual context
-- **Vector Database**: Store and query spatial information efficiently 
+- **Vector Database**: Store and query spatial information efficiently
 - **Location-Based Responses**: Provide context-aware information relevant to the robot's current position
 - **Object and Scene Understanding**: Recognize objects and environments using GPT vision models
 
@@ -64,7 +64,7 @@ All components leverage modern AI services:
 2. Create and activate a virtual environment:
    ```bash
    python -m venv venv
-   source venv/bin/activate 
+   source venv/bin/activate
    ```
 
 3. Install the package and dependencies:

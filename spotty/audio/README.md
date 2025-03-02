@@ -14,8 +14,8 @@ conda activate audio_control
 ## Install the required packages
 Install the Hugging Face CLI and the llama-cpp-python package:
 ```bash
-pip install huggingface-hub 
-CMAKE_ARGS="-DGGML_METAL=on" 
+pip install huggingface-hub
+CMAKE_ARGS="-DGGML_METAL=on"
 pip install llama-cpp-python
 ```
 Please refer to the [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) if there are any issues with the installation.
@@ -31,7 +31,7 @@ Please refer to the [whispercpp.py](https://github.com/stlukey/whispercpp.py) if
 ### Build issues
 The following error may occur while building the llama-cpp-python package:
 
-```bash 
+```bash
 llvm-ar: adding 50 object files to ...
 error: Command "/Users/runner/miniforge3/conda-bld/python-split_1606376626618/_build_env/bin/llvm-ar  ...  failed with exit status 127
 ```
@@ -54,7 +54,7 @@ huggingface-cli download TheBloke/Mistral-7B-Instruct-v0.1-GGUF \
     mistral-7b-instruct-v0.1.Q4_K_S.gguf \
     --local-dir models/small
 ```
-This will download 4-bit quantized small version of Mistral 7B model. You can also download the medium version. 
+This will download 4-bit quantized small version of Mistral 7B model. You can also download the medium version.
 
 Refer to the [Hugging Face model hub](https://huggingface.co/TheBloke/Mixtral-8x7B-v0.1-GGUF#:~:text=of%20quantisation%20methods-,Click,-to%20see%20details) for more information on GGUF models.
 The more RAM you have, the larger model you can use. For 16 GB RAM on M1 Mac, it is recommended to use the small model or the medium model (both quantized to 4-bit).
@@ -71,4 +71,3 @@ python spot_assistant.py --inference-method local --llama-model ./models/7B/mist
 The script will let you start and stop an audio by pressing "Enter". It will first transcribe the audio using local Whisper or OpenAI API Whisper, then it will generate appropriate [structured outputs](https://platform.openai.com/docs/guides/structured-outputs) using local Llama model or OpenAI API GPT4o-mini model which is the most cost effective model currently available.
 
 Overall, it seems like local Whisper transcription is quite fast, but Llama (medium) can be slow. It is worth trying the small model first or using the OpenAI API for the inference.
-

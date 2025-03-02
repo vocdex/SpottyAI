@@ -9,20 +9,21 @@
 
 def id_to_short_code(id):
     """Convert a unique id to a 2 letter short code."""
-    tokens = id.split('-')
+    tokens = id.split("-")
     if len(tokens) > 2:
-        return '%c%c' % (tokens[0][0], tokens[1][0])
+        return "%c%c" % (tokens[0][0], tokens[1][0])
     return None
 
 
 def pretty_print_waypoints(waypoint_id, waypoint_name, short_code_to_count, localization_id):
     short_code = id_to_short_code(waypoint_id)
     if short_code is None or short_code_to_count[short_code] != 1:
-        short_code = '  '  # If the short code is not valid/unique, don't show it.
+        short_code = "  "  # If the short code is not valid/unique, don't show it.
 
     print(
-        "%s Waypoint name: %s id: %s short code: %s" %
-        ('->' if localization_id == waypoint_id else '  ', waypoint_name, waypoint_id, short_code))
+        "%s Waypoint name: %s id: %s short code: %s"
+        % ("->" if localization_id == waypoint_id else "  ", waypoint_name, waypoint_id, short_code)
+    )
 
 
 def find_unique_waypoint_id(short_code, graph, name_to_id):
@@ -39,8 +40,10 @@ def find_unique_waypoint_id(short_code, graph, name_to_id):
                 # Has an associated waypoint id!
                 return name_to_id[short_code]
             else:
-                print("The waypoint name %s is used for multiple different unique waypoints. Please use" + \
-                        "the waypoint id." % (short_code))
+                print(
+                    "The waypoint name %s is used for multiple different unique waypoints. Please use"
+                    + "the waypoint id." % (short_code)
+                )
                 return None
         # Also not a waypoint annotation name, so we will operate under the assumption that it is a
         # unique waypoint id.
@@ -67,7 +70,7 @@ def update_waypoints_and_edges(graph, localization_id, do_print=True):
         timestamp = -1.0
         try:
             timestamp = waypoint.annotations.creation_time.seconds + waypoint.annotations.creation_time.nanos / 1e9
-        except:
+        except Exception as e:
             # Must be operating on an older graph nav map, since the creation_time is not
             # available within the waypoint annotations message.
             pass
@@ -98,7 +101,7 @@ def update_waypoints_and_edges(graph, localization_id, do_print=True):
     # Print out the waypoints name, id, and short code in an ordered sorted by the timestamp from
     # when the waypoint was created.
     if do_print:
-        print('%d waypoints:' % len(graph.waypoints))
+        print("%d waypoints:" % len(graph.waypoints))
         for waypoint in waypoint_to_timestamp:
             pretty_print_waypoints(waypoint[0], waypoint[2], short_code_to_count, localization_id)
 
@@ -109,8 +112,11 @@ def update_waypoints_and_edges(graph, localization_id, do_print=True):
         else:
             edges[edge.id.to_waypoint] = [edge.id.from_waypoint]
         if do_print:
-            print("(Edge) from waypoint {} to waypoint {} (cost {})".format(
-                edge.id.from_waypoint, edge.id.to_waypoint, edge.annotations.cost.value))
+            print(
+                "(Edge) from waypoint {} to waypoint {} (cost {})".format(
+                    edge.id.from_waypoint, edge.id.to_waypoint, edge.annotations.cost.value
+                )
+            )
 
     return name_to_id, edges
 
@@ -123,7 +129,7 @@ def sort_waypoints_chrono(graph):
         timestamp = -1.0
         try:
             timestamp = waypoint.annotations.creation_time.seconds + waypoint.annotations.creation_time.nanos / 1e9
-        except:
+        except Exception as e:
             # Must be operating on an older graph nav map, since the creation_time is not
             # available within the waypoint annotations message.
             pass

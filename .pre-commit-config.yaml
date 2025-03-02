@@ -6,7 +6,7 @@ repos:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-      
+
   - repo: https://github.com/pycqa/flake8
     rev: 3.9.0
     hooks:
@@ -22,4 +22,4 @@ repos:
     rev: 5.12.0
     hooks:
       - id: isort
-        args: [--profile=black]  
+        args: [--profile=black]

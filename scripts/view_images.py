@@ -4,28 +4,30 @@ python view_images.py --map-path /path/to/map --waypoint-id <waypoint_id>
 """
 
 
-import os
-import cv2
 import argparse
-import numpy as np
-from scipy import ndimage
+import os
+
+import cv2
 import matplotlib.pyplot as plt
+import numpy as np
 from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import map_pb2
+from scipy import ndimage
+
 from spotty.utils.common_utils import get_map_paths
 
 # Rotation angles for different camera sources
 ROTATION_ANGLE = {
-    'back_fisheye_image': 0,
-    'frontleft_fisheye_image': -90,
-    'frontright_fisheye_image': -90,
-    'left_fisheye_image': 0,
-    'right_fisheye_image': 180
+    "back_fisheye_image": 0,
+    "frontleft_fisheye_image": -90,
+    "frontright_fisheye_image": -90,
+    "left_fisheye_image": 0,
+    "right_fisheye_image": 180,
 }
 
 # Camera source categories
-DEPTH_CAMERA_SOURCES = ['back_depth', 'frontleft_depth', 'frontright_depth', 'left_depth', 'right_depth']
-FRONT_CAMERA_SOURCES = ['frontleft_fisheye_image', 'frontright_fisheye_image']
+DEPTH_CAMERA_SOURCES = ["back_depth", "frontleft_depth", "frontright_depth", "left_depth", "right_depth"]
+FRONT_CAMERA_SOURCES = ["frontleft_fisheye_image", "frontright_fisheye_image"]
 
 
 def convert_image_from_snapshot(image_data, image_source, auto_rotate=True):
@@ -81,7 +83,7 @@ def load_local_graph_and_snapshot(graph_file_path, snapshot_dir):
     :return: Graph and a dictionary of snapshot IDs to snapshot objects.
     """
     graph = map_pb2.Graph()
-    with open(graph_file_path, 'rb') as graph_file:
+    with open(graph_file_path, "rb") as graph_file:
         graph.ParseFromString(graph_file.read())
     print(f"Loaded graph with {len(graph.waypoints)} waypoints.")
 
@@ -92,7 +94,7 @@ def load_local_graph_and_snapshot(graph_file_path, snapshot_dir):
 
         if os.path.exists(snapshot_file_path):
             snapshot = map_pb2.WaypointSnapshot()
-            with open(snapshot_file_path, 'rb') as snapshot_file:
+            with open(snapshot_file_path, "rb") as snapshot_file:
                 snapshot.ParseFromString(snapshot_file.read())
             snapshots[waypoint.id] = snapshot
 
@@ -117,9 +119,9 @@ def process_snapshot_images(snapshot, waypoint_id):
         image_data = image.shot.image
         try:
             opencv_image, _ = convert_image_from_snapshot(image_data, image_source)
-            if image_source == 'frontleft_fisheye_image':
+            if image_source == "frontleft_fisheye_image":
                 image_source = "left"
-            elif image_source == 'frontright_fisheye_image':
+            elif image_source == "frontright_fisheye_image":
                 image_source = "right"
             title = f"{waypoint_id}\n{image_source}"
             processed_images.append((opencv_image, title))
@@ -127,6 +129,7 @@ def process_snapshot_images(snapshot, waypoint_id):
             print(f"Error processing image from {image_source}: {e}")
 
     return processed_images
+
 
 def display_images_in_batches(images, grid_size=6):
     """
@@ -138,7 +141,7 @@ def display_images_in_batches(images, grid_size=6):
     batch_size = grid_size * grid_size
 
     for i in range(0, len(images), batch_size):
-        batch = images[i:i + batch_size]
+        batch = images[i : i + batch_size]
         num_images = len(batch)
         fig, axes = plt.subplots(grid_size, grid_size, figsize=(15, 15))
 
@@ -153,9 +156,9 @@ def display_images_in_batches(images, grid_size=6):
                 img, title = batch[j]
                 ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
                 ax.set_title(title, fontsize=10)
-                ax.axis('off')
+                ax.axis("off")
             else:
-                ax.axis('off')  # Turn off unused axes
+                ax.axis("off")  # Turn off unused axes
 
         plt.tight_layout()
         plt.show()
@@ -180,7 +183,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--map-path', required=True, help='Path to the map directory')
-    parser.add_argument('--waypoint-id', help='Specific waypoint ID to display')
+    parser.add_argument("--map-path", required=True, help="Path to the map directory")
+    parser.add_argument("--waypoint-id", help="Specific waypoint ID to display")
     args = parser.parse_args()
     main(args)
