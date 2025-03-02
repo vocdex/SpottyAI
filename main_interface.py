@@ -18,15 +18,9 @@ from scipy import ndimage
 import base64
 import time
 from openai import OpenAI
+from spotty import ROTATION_ANGLE
 
 
-ROTATION_ANGLE = {
-    'back_fisheye_image': 0,
-    'frontleft_fisheye_image': -90,
-    'frontright_fisheye_image': -90,
-    'left_fisheye_image': 0,
-    'right_fisheye_image': 180
-}
 
 @dataclass
 class SpotState:
@@ -51,7 +45,6 @@ class UnifiedSpotInterface:
         audio_device_index: int = -1,
         debug: bool = False
     ):
-        # Set up logging
         logging.basicConfig(
             level=logging.DEBUG if debug else logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -85,7 +78,6 @@ class UnifiedSpotInterface:
         image_sources = self.image_client.list_image_sources()
         image_sources_name = [source.name for source in image_sources]
         
-        # Check if the required sources are available
         required_sources = ['frontright_fisheye_image', 'frontleft_fisheye_image']
         for source in required_sources:
             if source not in image_sources_name:
