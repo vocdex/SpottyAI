@@ -65,3 +65,5 @@ docs/_build/
 *.gguf2
 *.lock
 *.metadata
+
+/assets/
