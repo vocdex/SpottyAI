@@ -1,21 +1,15 @@
-import base64
 import logging
 import os
 import threading
 import time
-from dataclasses import dataclass
-from queue import Queue
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
-import numpy as np
-from bosdyn.api import image_pb2
-from bosdyn.client.image import build_image_request
 from openai import OpenAI
-from scipy import ndimage
 
-from spotty import KEYWORD_PATH, MAP_PATH, RAG_DB_PATH, ROTATION_ANGLE
+from spotty import KEYWORD_PATH, MAP_PATH, RAG_DB_PATH
 from spotty.annotation import MultimodalRAGAnnotator
+from spotty.audio.command_parser import CommandParser
 from spotty.audio.robot_interface import (
     AudioConfig,
     AudioManager,
@@ -23,19 +17,13 @@ from spotty.audio.robot_interface import (
     WakeWordConfig,
     WakeWordDetector,
 )
+from spotty.config.robot_config import RobotConfig
 from spotty.mapping import GraphNavInterface
+from spotty.mapping.navigator_interface import NavigatorInterface
 from spotty.utils.common_utils import get_map_paths
-
-
-@dataclass
-class SpotState:
-    """Tracks the robot's current state"""
-
-    waypoint_id: str
-    location: str
-    prev_location: str
-    prev_waypoint_id: str
-    what_it_sees: Optional[Dict[str, Any]] = None  # Store RAG annotations
+from spotty.utils.state_manager import SpotState
+from spotty.vision.image_processor import ImageProcessor
+from spotty.vision.vqa_handler import VQAHandler
 
 
 class UnifiedSpotInterface:
@@ -43,88 +31,49 @@ class UnifiedSpotInterface:
 
     def __init__(
         self,
-        robot,
-        map_path: str,
-        vector_db_path: str,
-        system_prompt: str,
-        keyword_path: str,
-        audio_device_index: int = -1,
-        debug: bool = False,
+        # robot,
+        config: RobotConfig,
     ):
         logging.basicConfig(
-            level=logging.DEBUG if debug else logging.INFO,
+            level=logging.DEBUG if config.debug else logging.INFO,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
         self.logger = logging.getLogger(__name__)
+        self.config = config
 
-        # Initialize state and queues
-        self.state = SpotState(
-            waypoint_id="",
-            location="",
-            prev_location="",
-            prev_waypoint_id="",
-        )
-        self.command_queue = Queue()
-        self.is_running = False
+        self.state = SpotState()
 
-        # Initialize components
-        self._init_graph_nav(robot, map_path)
-        self._init_rag_system(map_path, vector_db_path)
-        self._init_audio_components(system_prompt, keyword_path, audio_device_index)
-        self.image_client = robot.ensure_client("image")
-        self.current_images = {}
-        self.image_thread = None
-        self._init_image_fetching()
+        # self.robot = robot
+        # self.image_client = robot.ensure_client("image")
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    def _init_image_fetching(self):
-        """Initialize image fetching thread"""
-        self.logger.info("Starting image fetching thread...")
+        # self._init_graph_nav(robot, config.map_path)
+        self._init_rag_system(config.map_path, config.vector_db_path)
+        self._init_audio_components(config.system_prompt, config.wake_word_config)
 
-        image_sources = self.image_client.list_image_sources()
-        image_sources_name = [source.name for source in image_sources]
+        # # self.image_processor = ImageProcessor(
+        #     self.image_client,
+        #     self.logger,
+        #     config.vision_config.rotation_angles
+        # )
+        # self.vqa_handler = VQAHandler(self.openai_client, self.logger)
+        self.command_parser = CommandParser()
 
-        required_sources = ["frontright_fisheye_image", "frontleft_fisheye_image"]
-        for source in required_sources:
-            if source not in image_sources_name:
-                self.logger.error(f"Required image source {source} not available")
-                raise Exception(f"Required image source {source} not available")
+        self.navigator = NavigatorInterface(self.graph_nav, self.state, self.logger)
+        self.navigator.set_rag_system(self.rag_system)
 
-        self.image_thread = threading.Thread(target=self._fetch_images_loop, daemon=True)
-        self.image_thread.start()
-        self.logger.info("Image fetching thread started")
+        self._init_image_fetching(config.vision_config.required_sources)
 
-    def _fetch_images_loop(self):
-        """Continuously fetch images from the robot's cameras"""
-        image_sources = ["frontright_fisheye_image", "frontleft_fisheye_image"]
-        image_requests = [build_image_request(source, quality_percent=75) for source in image_sources]
-        self.is_running = True
-        while self.is_running:
-            try:
-                self.logger.debug("Fetching images...")
-                image_responses = self.image_client.get_image(image_requests)
-                self.logger.debug(f"Received {len(image_responses)} images")
-
-                for image in image_responses:
-                    dtype = np.uint8
-                    img = np.frombuffer(image.shot.image.data, dtype=dtype)
-
-                    if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
-                        img = img.reshape((image.shot.image.rows, image.shot.image.cols, 3))
-                    else:
-                        img = cv2.imdecode(img, -1)
-
-                    if image.source.name in ROTATION_ANGLE:
-                        img = ndimage.rotate(img, ROTATION_ANGLE[image.source.name])
-
-                    self.current_images[image.source.name] = img
-                    self.logger.debug(f"Stored image from {image.source.name}")
-
-                time.sleep(0.5)
-
-            except Exception as e:
-                self.logger.error(f"Error fetching images: {str(e)}")
-                continue
+    def _init_graph_nav(self, robot, map_path: str):
+        """Initialize the GraphNav component"""
+        try:
+            self.logger.info("Initializing GraphNav...")
+            self.graph_nav = GraphNavInterface(robot, map_path)
+            self.graph_nav._initialize_map(maybe_clear=False)
+            self.logger.info("GraphNav initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
+            raise
 
     def _init_rag_system(self, map_path: str, vector_db_path: str):
         """Initialize RAG system"""
@@ -143,43 +92,49 @@ class UnifiedSpotInterface:
             self.logger.error(f"Failed to initialize RAG system: {str(e)}")
             raise
 
-    def _init_audio_components(self, system_prompt: str, keyword_path: str, audio_device_index: int):
+    def _init_audio_components(self, system_prompt: str, wake_word_config: WakeWordConfig):
         """Initialize audio and chat components"""
         try:
             self.logger.info("Initializing audio components...")
 
             self.audio_manager = AudioManager(AudioConfig())
-
             self.chat_client = ChatClient(system_prompt=system_prompt)
-
-            wake_config = WakeWordConfig(
-                access_key=os.getenv("PICOVOICE_ACCESS_KEY"), keyword_path=keyword_path, device_index=audio_device_index
-            )
-            self.wake_detector = WakeWordDetector(wake_config)
+            self.wake_detector = WakeWordDetector(wake_word_config)
 
             self.logger.info("Audio components initialized")
         except Exception as e:
             self.logger.error(f"Failed to initialize audio components: {str(e)}")
             raise
 
-    def _init_graph_nav(self, robot, map_path: str):
-        """Initialize the GraphNav component"""
-        try:
-            self.logger.info("Initializing GraphNav...")
-            self.graph_nav = GraphNavInterface(robot, map_path)
-            self.graph_nav._initialize_map(maybe_clear=False)
-            self.logger.info("GraphNav initialized successfully")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize GraphNav: {str(e)}")
-            raise
+    def _init_image_fetching(self, required_sources: List[str]):
+        """Initialize image fetching thread"""
+        self.logger.info("Starting image fetching thread...")
 
-    def log_current_images(self):
-        """Log the current images for debugging"""
-        if not self.current_images:
-            self.logger.warning("No images in self.current_images")
-        else:
-            for source, img in self.current_images.items():
-                self.logger.info(f"Image from {source} has shape {img.shape}")
+        image_sources = self.image_client.list_image_sources()
+        image_sources_name = [source.name for source in image_sources]
+
+        for source in required_sources:
+            if source not in image_sources_name:
+                self.logger.error(f"Required image source {source} not available")
+                raise Exception(f"Required image source {source} not available")
+
+        self.image_thread = threading.Thread(target=self._fetch_images_loop, daemon=True)
+        self.image_thread.start()
+        self.logger.info("Image fetching thread started")
+
+    def _fetch_images_loop(self):
+        """Continuously fetch images from the robot's cameras"""
+        image_sources = ["frontright_fisheye_image", "frontleft_fisheye_image"]
+        self.state.is_running = True
+
+        while self.state.is_running:
+            try:
+                images = self.image_processor.fetch_images(image_sources)
+                self.state.current_images = images
+                time.sleep(0.5)
+            except Exception as e:
+                self.logger.error(f"Error in image fetching loop: {str(e)}")
+                time.sleep(1.0)  # Sleep longer on error
 
     def _sit_robot(self):
         """Command the robot to sit using GraphNav interface."""
@@ -204,130 +159,65 @@ class UnifiedSpotInterface:
             response = self.chat_client.chat_completion(user_input)
             print(f"\nSpot's decision: {response}")
 
-            self._parse_and_execute_command(response)
+            command_data = self.command_parser.extract_command(response)
+            self._execute_command(command_data)
 
         except Exception as e:
             self.logger.error(f"Error in interaction: {e}")
             self._handle_speech("I encountered an error processing your request.")
 
-    def _parse_and_execute_command(self, response: str):
-        """Parse LLM response and execute corresponding command"""
+    def _execute_command(self, command_data: Dict[str, Any]):
+        """Execute a command based on parsed command data"""
+        command = command_data.get("command")
+        params = command_data.get("parameters", {})
+
         try:
-            if "navigate_to(" in response:
-                parts = response.split("navigate_to(")[1].split(")")[0].split(",")
-                parts[0] = parts[0].strip('"')
-                self._handle_navigation(parts[0].strip(), parts[1].strip() if len(parts) > 1 else None)
-
-            elif "describe_scene(" in response:
-                query = response.split("describe_scene(")[1].split(")")[0].strip('"')
-                self._handle_vqa(query)
-            elif "say(" in response:
-                phrase = response.split("say(")[1].split(")")[0].strip('"')
-                self._handle_speech(phrase)
-
-            elif "ask(" in response:
-                question = response.split("ask(")[1].split(")")[0].strip('"')
-                self._handle_question(question)
-
-            elif "search(" in response:
-                query = response.split("search(")[1].split(")")[0].strip('"')
-                self._handle_search(query)
-            elif "sit(" in response:
+            if command == "navigate_to":
+                self._handle_navigation(params.get("waypoint_id"), params.get("phrase"))
+            elif command == "describe_scene":
+                self._handle_vqa(params.get("query"))
+            elif command == "say":
+                self._handle_speech(params.get("phrase"))
+            elif command == "ask":
+                self._handle_question(params.get("question"))
+            elif command == "search":
+                self._handle_search(params.get("query"))
+            elif command == "sit":
                 if self._sit_robot():
                     self._handle_speech("I have sat down and turned off my motors.")
                 else:
                     self._handle_speech("I had trouble sitting down.")
-
-            elif "stand(" in response:
+            elif command == "stand":
                 if self._stand_robot():
                     self._handle_speech("I am now standing and ready to assist.")
                 else:
                     self._handle_speech("I had trouble standing up.")
             else:
-                self.logger.warning(f"Unknown command in response: {response}")
+                self.logger.warning(f"Unknown command: {command}")
                 self._handle_speech("I'm not sure how to handle that request.")
-
         except Exception as e:
-            self.logger.error(f"Error parsing command: {e}")
-            self._handle_speech("I had trouble understanding how to handle that request.")
+            self.logger.error(f"Error executing command {command}: {e}")
+            self._handle_speech("I had trouble executing that command.")
 
-    def _handle_vqa(self, query: str):
-        """Handle visual question answering using GPT-4V-mini with unified scene understanding"""
-        try:
-            self.log_current_images()
-            if not self.current_images:
-                self._handle_speech("I don't have access to camera images")
-                return
-            elif not self.openai_client:
-                self._handle_speech("I don't have access to the OpenAI vision model")
-
-            messages = [
-                {
-                    "role": "system",
-                    "content": """
-                    You are assisting a robot in analyzing its environment through two camera feeds
-                    that show the left and right front views. These images together form a wider
-                    view of the scene. When describing what you see:
-
-                    1. Provide a single, coherent description that combines information from both views
-                    2. Focus on spatial relationships between objects across both images
-                    3. Avoid mentioning "left camera" or "right camera" unless specifically asked
-                    4. Describe the scene as if you're looking at it from the robot's perspective
-                    5. If you see the same object in both images, mention it only once
-                    Be creative and have fun with your responses!
-                    Be concise(2-3 sentences)
-                    Remember to address the user's specific query in your response.
-                    """,
-                }
-            ]
-
-            user_content = [{"type": "text", "text": query}]
-
-            for source, img in self.current_images.items():
-                try:
-                    success, buffer = cv2.imencode(".jpg", img)
-                    if success:
-                        base64_image = base64.b64encode(buffer).decode("utf-8")
-                        user_content.append(
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        )
-                except Exception as e:
-                    self.logger.error(f"Error processing image from {source}: {str(e)}")
-                    continue
-
-            messages.append({"role": "user", "content": user_content})
-
-            try:
-                response = self.openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages)
-
-                vqa_response = response.choices[0].message.content
-                self._handle_speech(vqa_response)
-
-                self.chat_client.add_to_history({"role": "user", "content": f"[Visual Query] {query}"})
-                self.chat_client.add_to_history({"role": "assistant", "content": vqa_response})
-            except Exception as e:
-                self.logger.error(f"Error calling vision model: {str(e)}")
-                self._handle_speech("I had trouble analyzing the images. Please try again.")
-
-        except Exception as e:
-            self.logger.error(f"Error in VQA: {str(e)}")
-            self._handle_speech("I encountered an error processing your visual query.")
-
-    def _handle_navigation(self, waypoint_id: str, phrase: Optional[str] = None, search_query: Optional[str] = False):
-        """Handle navigation to waypoint"""
+    def _handle_navigation(self, waypoint_id: str, phrase: Optional[str] = None):
+        """Handle navigation to waypoint or location"""
         if phrase:
             self._handle_speech(phrase)
-            time.sleep(5)
+            time.sleep(4)  # Give time for speech to complete
 
-        # Execute navigation
         destination = (waypoint_id, None)
         is_successful = False
         print(f"Destination: {destination}")
-        if search_query:
-            is_successful = self.graph_nav._navigate_to(destination)
+
+        if waypoint_id in self.rag_system.get_vector_store_info().get("total_documents", []):
+            # This is likely a waypoint ID
+            # is_successful = self.graph_nav._navigate_to(destination)
+            self._handle_speech("I am navigating to the specified location.")
         else:
-            is_successful, matching_waypoint_id = self.graph_nav._navigate_to_by_location(destination)
-            waypoint_id = matching_waypoint_id
+            # This is likely a location name, try to find matching waypoint
+            # is_successful, matching_waypoint_id = self.graph_nav._navigate_to_by_location(destination)
+            # waypoint_id = matching_waypoint_id
+            self._handle_speech("I am navigating to the specified location.")
 
         if is_successful:
             self.state.prev_waypoint_id = self.state.waypoint_id
@@ -344,6 +234,33 @@ class UnifiedSpotInterface:
                 self._handle_speech("Arrived at destination")
         else:
             self._handle_speech("I was unable to reach the destination")
+
+    def _handle_vqa(self, query: str):
+        """Handle visual question answering using VQA handler"""
+        try:
+            if not self.state.current_images:
+                self._handle_speech("I don't have access to camera images")
+                return
+
+            # Prepare images for VQA processing
+            image_dict = {}
+            for source, img in self.state.current_images.items():
+                try:
+                    success, buffer = cv2.imencode(".jpg", img)
+                    if success:
+                        image_dict[source] = buffer.tobytes()
+                except Exception as e:
+                    self.logger.error(f"Error processing image from {source}: {str(e)}")
+
+            vqa_response = self.vqa_handler.process_query(query, image_dict)
+            self._handle_speech(vqa_response)
+
+            self.chat_client.add_to_history({"role": "user", "content": f"[Visual Query] {query}"})
+            self.chat_client.add_to_history({"role": "assistant", "content": vqa_response})
+
+        except Exception as e:
+            self.logger.error(f"Error in VQA: {str(e)}")
+            self._handle_speech("I encountered an error processing your visual query.")
 
     def _handle_speech(self, text: str):
         """Handle text-to-speech output"""
@@ -374,7 +291,6 @@ class UnifiedSpotInterface:
             self._handle_navigation(
                 result["waypoint_id"],
                 f"I found {query} in {result['location']}. Let me take you there.",
-                search_query=True,
             )
         else:
             # Multiple locations found, ask user for preference
@@ -387,33 +303,28 @@ class UnifiedSpotInterface:
             if not audio_file:
                 return
 
-            response = self.chat_client.speech_to_text(audio_file)
+            user_response = self.chat_client.speech_to_text(audio_file)
 
             try:
-                # Try to match either number or location name
-                chosen_location = None
-                response = response.lower()
+                # Use the chat completion API to interpret the user's choice
+                system_prompt = f"""You are helping identify which location a user has chosen from a list.
+                                Available locations: {', '.join(locations.keys())}
+                                The user's response is: "{user_response}"
+                                Respond ONLY with the exact name of the chosen location from the available list, or respond with "unknown" if the choice is unclear."""
 
-                for i, loc in enumerate(locations.keys()):
-                    if str(i + 1) in response:
-                        chosen_location = loc
+                location_choice = self.chat_client.chat_completion(user_response, messages=[{"role": "system", "content": system_prompt}])
+
+                location_choice = location_choice.strip().lower()
+                for loc in locations.keys():
+                    if loc.lower() in location_choice:
+                        location_choice = loc
                         break
 
-                if not chosen_location:
-                    for loc in locations.keys():
-                        if loc.lower() in response:
-                            chosen_location = loc
-                            break
-
-                if chosen_location and chosen_location in locations:
-                    result = locations[chosen_location]
-                    self._handle_navigation(
-                        result["waypoint_id"], f"Taking you to {query} in {chosen_location}.", search_query=True
-                    )
+                if location_choice in locations:
+                    result = locations[location_choice]
+                    self._handle_navigation(result["waypoint_id"], f"Taking you to {query} in {location_choice}.")
                 else:
-                    self._handle_speech(
-                        "I'm sorry, I couldn't understand which location you prefer. Please try your search again."
-                    )
+                    self._handle_speech("I'm sorry, I couldn't understand which location you prefer. Please try your search again.")
 
             except Exception as e:
                 self.logger.error(f"Error processing location choice: {e}")
@@ -430,39 +341,20 @@ class UnifiedSpotInterface:
 
             user_response = self.chat_client.speech_to_text(audio_file)
 
-            history_context = []
-            for msg in self.chat_client.history:
-                history_context.append({"role": msg["role"], "content": msg["content"]})
-
-            context_prompt = {
-                "role": "system",
-                "content": """Consider the conversation history and current context when responding.
-                            Provide a natural follow-up that builds on previous interactions.
-                            Remember to use exactly one function call in your response.""",
-            }
-
             self.chat_client.add_to_history({"role": "assistant", "content": question})
             self.chat_client.add_to_history({"role": "user", "content": user_response})
 
-            messages = [
-                context_prompt,
-                *history_context,
-                {"role": "assistant", "content": question},
-                {"role": "user", "content": user_response},
-            ]
-
-            follow_up = self.chat_client.chat_completion(
-                user_response, messages=messages  # Pass full message history for context
-            )
+            follow_up = self.chat_client.chat_completion(user_response)
 
             self.chat_client.add_to_history({"role": "assistant", "content": follow_up})
 
-            if "say(" in follow_up:
-                follow_up = follow_up.split("say(")[1].split(")")[0].strip('"')
-            elif "ask(" in follow_up:
-                follow_up = follow_up.split("ask(")[1].split(")")[0].strip('"')
+            command_data = self.command_parser.extract_command(follow_up)
 
-            self._handle_speech(follow_up)
+            if command_data["command"] == "say":
+                self._handle_speech(command_data["parameters"]["phrase"])
+            else:
+                # Execute any other command
+                self._execute_command(command_data)
 
         except Exception as e:
             self.logger.error(f"Error in _handle_question: {str(e)}")
@@ -478,16 +370,16 @@ class UnifiedSpotInterface:
 
         self.wake_detector.start(callback=wake_word_callback)
 
-        while self.is_running:
+        while self.state.is_running:
             try:
                 self.wake_detector.wake_word_queue.get(timeout=1.0)
             except Exception as e:
-                print(e)
+                self.logger.debug(f"Queue get timeout: {e}")
                 continue
 
     def start(self):
         """Start the unified interface"""
-        self.is_running = True
+        self.state.is_running = True
         self.command_thread = threading.Thread(target=self._command_processing_loop)
         self.command_thread.daemon = True
         self.command_thread.start()
@@ -495,42 +387,54 @@ class UnifiedSpotInterface:
 
     def stop(self):
         """Stop the unified interface"""
-        self.is_running = False
+        self.state.is_running = False
         self.wake_detector.stop()
         self.audio_manager.cleanup()
-        if self.image_thread:
-            self.image_thread.join()
-        if self.command_thread:
-            self.command_thread.join()
-        self.graph_nav._on_quit()
 
+        if hasattr(self, "image_thread") and self.image_thread:
+            self.image_thread.join(timeout=2.0)
+
+        if hasattr(self, "command_thread") and self.command_thread:
+            self.command_thread.join(timeout=2.0)
+
+        self.graph_nav._on_quit()
         self.logger.info("Unified interface stopped")
 
 
 def main():
     """Main entry point"""
-    import bosdyn.client
+    # import bosdyn.client
 
     from spotty.audio import system_prompt_assistant
+    from spotty.config.robot_config import RobotConfig, VisionConfig, WakeWordConfig
     from spotty.utils.robot_utils import HOSTNAME, auto_authenticate
 
     # Initialize robot
-    sdk = bosdyn.client.create_standard_sdk("UnifiedSpotInterface")
-    robot = sdk.create_robot(HOSTNAME)
-    auto_authenticate(robot)
+    # sdk = bosdyn.client.create_standard_sdk("UnifiedSpotInterface")
+    # robot = sdk.create_robot(HOSTNAME)
+    # auto_authenticate(robot)
 
-    interface = UnifiedSpotInterface(
-        robot=robot,
+    config = RobotConfig(
+        wake_word_config=WakeWordConfig(access_key=os.getenv("PICOVOICE_ACCESS_KEY"), keyword_path=KEYWORD_PATH),
+        vision_config=VisionConfig(),
+        system_prompt=system_prompt_assistant,
         map_path=os.path.join(MAP_PATH, "chair_v3"),
         vector_db_path=os.path.join(RAG_DB_PATH, "chair_v3"),
-        system_prompt=system_prompt_assistant,
-        keyword_path=KEYWORD_PATH,
     )
+
+    interface = UnifiedSpotInterface(
+        # robot=robot,
+        config=config
+    )
+
     try:
         interface.start()
         while True:
-            pass
+            time.sleep(1.0)
     except KeyboardInterrupt:
+        interface.stop()
+    except Exception as e:
+        logging.error(f"Error in main thread: {e}")
         interface.stop()
 
 

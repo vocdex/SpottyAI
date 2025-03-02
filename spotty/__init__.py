@@ -5,7 +5,10 @@ SPOTTY_ROOT = Path(__file__).parent.parent
 ASSETS_PATH = os.path.join(SPOTTY_ROOT, "assets")
 MAP_PATH = os.path.join(ASSETS_PATH, "maps")
 RAG_DB_PATH = os.path.join(ASSETS_PATH, "database")
-KEYWORD_PATH = os.path.join(ASSETS_PATH, "hey_spot_porcupine/Hey-Spot_en_mac_v3_0_0.ppn")
+# Get the platform (linux, mac) to load the correct keyword file
+platform = "linux" if os.name == "posix" else "mac"
+print(f"Platform: {platform}")
+KEYWORD_PATH = os.path.join(ASSETS_PATH, f"hey_spot_porcupine/Hey-Spot_en_{platform}_v3_0_0.ppn")
 
 
 # Ensure paths exist to prevent runtime errors
