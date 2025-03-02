@@ -1,0 +1,7 @@
+matplotlib==3.7.5
+matplotlib-inline==0.1.7
+open3d==0.15.1
+PyQt5==5.15.11
+vtk==9.0.3
+plotly==6.0.0
+dash==2.18.2
