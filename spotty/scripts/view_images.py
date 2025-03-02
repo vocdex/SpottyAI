@@ -1,3 +1,9 @@
+"""View images from waypoint snapshots in a GraphNav map.
+To run:
+python view_images.py --map-path /path/to/map --waypoint-id <waypoint_id>
+"""
+
+
 import os
 import cv2
 import argparse

@@ -4,7 +4,8 @@
 # # is subject to the terms and conditions of the Boston Dynamics Software
 # # Development Kit License (20191101-BDSDK-SL).
 
-""" VTK controls are not supported on MacOS """
+""" View a graph nav map in 3D using VTK. Modified from the original example in the SDK. This version works with
+M1 Mac(vtk)"""
 import argparse
 from vtk.util import numpy_support
 import numpy as np
