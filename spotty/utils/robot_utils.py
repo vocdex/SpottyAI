@@ -1,7 +1,6 @@
 HOSTNAME = "172.20.10.12"  # Hotspot IP
 USERNAME = "user"
-PASSWORD = "c037gcf6n93f"
-
+PASSWORD = "PASSWORD"
 
 def auto_authenticate(robot):
     robot.authenticate(USERNAME, PASSWORD, timeout=20)
