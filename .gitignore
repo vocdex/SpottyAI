@@ -52,7 +52,6 @@ docs/_build/
 # ignore all map folders
 *graph
 *maps/
-*.png
 *.jpg
 *.env
 *.wav
