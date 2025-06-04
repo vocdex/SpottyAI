@@ -60,6 +60,8 @@ Uses OpenAI GPT-4o-mini, Whisper, TTS, CLIP, and FAISS vector database.
 git clone https://github.com/vocdex/SpottyAI.git
 cd spotty
 python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-optional.txt
 pip install -e .
 
 export OPENAI_API_KEY="your_key"
