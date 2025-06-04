@@ -1,14 +1,21 @@
 # Spotty: Voice Interface for Boston Dynamics Spot
+Natural language interface for Spot robot with vision, navigation, and contextual awareness.
+
+
 
 <p align="center">
   <img src="assets/spot_logo.png", alt="Spotty Logo" width="400" height="450">
 </p>
 
-Natural language control for Spot robot with vision, navigation, and contextual awareness.
+
 ## Video Demo
 [![Spotty Demo Video](https://img.youtube.com/vi/7-Tha8riGnU/maxresdefault.jpg)](https://youtu.be/7-Tha8riGnU?t=117)
 
-More videos available at [GDrive](https://drive.google.com/drive/folders/1Y0DPO2_XnNbGx1GQ6T4V72DM6P8rJYkU?usp=sharing)
+More videos available at [GDrive](https://drive.google.com/drive/folders/1Y0DPO2_XnNbGx1GQ6T4V72DM6P8rJYkU?usp=sharing):
+- Visual Question Answering
+- Navigating to kitchen
+- Navigating to KUKA robot
+- Navigating to trash can
 
 ## Features
 
@@ -124,3 +131,9 @@ Pre-recorded assets( maps, voice activation model, RAG database): [Download from
 ## License
 
 MIT License
+## Disclaimer
+This project is an open-source implementation of [Boston Dynamics Demo](https://youtu.be/djzOBZUFzTw) and is not affiliated with Boston Dynamics. It is intended for educational and research purposes only. Use at your own risk.
+## Acknowledgements
+- Big thanks to Automatic Control Chair at FAU for providing the robot for my semester project
+- Many thanks to Boston Dynamics’ engineers for their work on Spot SDK
+- HuggingFace, OpenAI, Facebook Research
