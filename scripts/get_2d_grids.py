@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 """Convert .ply file to 2D occupancy grid map. White pixels are occupied, black pixels are free space."""
 import argparse
 import os

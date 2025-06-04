@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 """Parses assistant responses into structured commands. For each function calling defined in the system prompt,
 there should be a corresponding command defined in this file. The command should be extracted from the API response
 """

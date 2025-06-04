@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 """Given a recorded GraphNav graph, this script updates the waypoint annotations using two methods:
 1. Manual Annotation: Update annotations using a dictionary of custom labels.
 2. CLIP Annotation: Automatically label waypoints using CLIP model based on waypoint snapshots.

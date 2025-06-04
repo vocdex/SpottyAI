@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 system_prompt = """You are a voice-based assistant for Spot, a robot dog. Your job is to:
 1. Parse user commands into actionable JSON tasks for controlling Spot.
 2. If the user mixes unrelated or irrelevant input, ignore the irrelevant parts and extract actionable tasks.

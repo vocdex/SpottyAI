@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 # spotty/mapping/navigator_interface.py
 import logging
 from typing import Dict, Optional, Tuple

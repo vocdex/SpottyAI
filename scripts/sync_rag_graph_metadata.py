@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 """
 Synchronize RAG metadata and rebuild vector store with GraphNav waypoint labels.
 Usage: python sync_rag_data.py --map-path /path/to/map --rag-path /path/to/rag_db

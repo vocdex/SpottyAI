@@ -1,3 +1,8 @@
+#                                                                               
+# Copyright (c) 2025, FAU, Shukrullo Nazirjonov
+# All rights reserved. Licensed under the MIT license.
+# See LICENSE file in the project root for details.
+#                                                                               
 """Visualize GraphNav maps with Dash and enable waypoint label editing.
 To run:
 1. Install the required packages using the following command:
